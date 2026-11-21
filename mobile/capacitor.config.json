@@ -1,0 +1,9 @@
+{
+  "appId": "com.tuningbook.app",
+  "appName": "TuningBook",
+  "webDir": "www",
+  "backgroundColor": "#0f1115",
+  "android": {
+    "adjustMarginsForEdgeToEdge": "auto"
+  }
+}

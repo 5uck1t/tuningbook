@@ -1,0 +1,24 @@
+{
+  "name": "tuningbook-mobile",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Android build of TuningBook (Capacitor). Shares the UI from ../src/renderer.",
+  "scripts": {
+    "build:web": "node scripts/build-www.mjs",
+    "sync": "npm run build:web && npx cap sync android",
+    "apk": "npm run sync && node scripts/build-apk.mjs"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.6.2",
+    "@capacitor/app": "^8.1.2",
+    "@capacitor/browser": "^8.0.5",
+    "@capacitor/camera": "^8.2.6",
+    "@capacitor/core": "^8.6.2",
+    "@capacitor/filesystem": "^8.1.5",
+    "@capacitor/share": "^8.0.3"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.6.2",
+    "esbuild": "^0.28.2"
+  }
+}
