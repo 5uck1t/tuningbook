@@ -1,5 +1,6 @@
 // Assembles web/dist (a static site for GitHub Pages) from the shared UI in ../src/renderer
 // plus the Supabase-backed `window.api` from web/src.
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -56,4 +57,16 @@ await build({
   sourcemap: false,
   logLevel: 'warning',
 });
+
+// Cache busting: GitHub Pages lets browsers reuse files for 10 minutes. Adding a hash of each
+// file's content (app.js?v=1a2b3c4d) makes a new deploy load its own files right away and never
+// mixes an old app.js with a new api-web.js.
+const hashOf = (f) => crypto.createHash('sha256').update(fs.readFileSync(path.join(dist, f))).digest('hex').slice(0, 10);
+let page = fs.readFileSync(path.join(dist, 'index.html'), 'utf8');
+for (const f of ['styles.css', 'app.js', 'api-web.js', 'vendor/jszip.min.js']) {
+  const before = page;
+  page = page.replace(new RegExp(`((?:src|href)=")${f.replace(/[.]/g, '\\.')}(")`), `$1${f}?v=${hashOf(f)}$2`);
+  if (page === before) throw new Error('Could not add a version to ' + f);
+}
+fs.writeFileSync(path.join(dist, 'index.html'), page);
 console.log('dist built');

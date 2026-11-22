@@ -109,7 +109,7 @@ img { display: block; }
   transition: transform .15s, border-color .15s, box-shadow .15s;
 }
 .car-card:hover { transform: translateY(-3px); border-color: #3a4150; box-shadow: var(--shadow); }
-.car-card .cover { aspect-ratio: 16 / 10; background: var(--panel-2); position: relative; }
+.car-card .cover { aspect-ratio: 16 / 10; background: var(--panel-2); position: relative; overflow: hidden; }
 .car-card .cover img { width: 100%; height: 100%; object-fit: cover; }
 .car-card .cover .ph { position: absolute; inset: 0; display: grid; place-items: center; color: #3a4150; }
 .car-card .cover::after {
@@ -149,7 +149,7 @@ img { display: block; }
   padding: 18px; margin-bottom: 24px;
 }
 .car-hero .cover { aspect-ratio: 16 / 10; border-radius: 10px; overflow: hidden; background: var(--panel-2); display: grid; place-items: center; color: #3a4150; }
-.car-hero .cover img { width: 100%; height: 100%; object-fit: cover; }
+.car-hero .cover img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .car-hero h1 { margin: 2px 0 0; font-size: 30px; letter-spacing: -.02em; }
 .car-hero .sub { color: var(--muted); font-size: 15px; }
 .car-hero .notes { color: #c3c8d2; margin: 10px 0 0; white-space: pre-wrap; max-height: 64px; overflow: auto; }
@@ -180,8 +180,10 @@ img { display: block; }
   transition: border-color .15s, background .15s;
 }
 .mod-row:hover { border-color: #3a4150; background: #1a1d25; }
-.mod-thumb { width: 96px; height: 72px; border-radius: 8px; overflow: hidden; background: var(--panel-2); display: grid; place-items: center; color: #3a4150; }
-.mod-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.mod-thumb { position: relative; width: 96px; height: 72px; border-radius: 8px; overflow: hidden; background: var(--panel-2); display: grid; place-items: center; color: #3a4150; }
+/* Pinned to the frame (a plain grid item would grow to the photo's own height, so the photo
+   could never be repositioned inside it). */
+.mod-thumb img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .mod-row h3 { margin: 0; font-size: 16px; }
 .mod-row .meta { display: flex; gap: 12px; color: var(--muted); font-size: 12.5px; margin-top: 4px; flex-wrap: wrap; align-items: center; }
 .mod-row .meta svg { width: 13px; height: 13px; vertical-align: -2px; margin-right: 3px; }
@@ -238,16 +240,28 @@ textarea { resize: vertical; min-height: 80px; }
 .thumb .pos:hover { background: var(--accent); }
 
 /* "Adjust preview" editor */
-.pos-frame {
-  position: relative; overflow: hidden; border-radius: 10px; background: var(--panel-2);
-  cursor: grab; touch-action: none; user-select: none; outline: 1px solid var(--line);
+.pos-pick {
+  display: grid; place-items: center; background: var(--panel-2); border-radius: 10px; padding: 8px;
 }
-.pos-frame.dragging { cursor: grabbing; }
-.pos-frame img { width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; }
-.pos-frame.wide { aspect-ratio: 16 / 10; }
-.pos-frame.square { aspect-ratio: 1; width: 84px; }
-.pos-frame.photo { aspect-ratio: 4 / 3; width: 112px; }
-.pos-previews { display: flex; gap: 14px; margin-top: 12px; align-items: flex-end; }
+.pos-pick-inner {
+  position: relative; display: inline-block; line-height: 0; cursor: crosshair;
+  touch-action: none; user-select: none;
+}
+.pos-pick-inner img { max-width: 100%; max-height: min(46vh, 380px); display: block; border-radius: 6px; pointer-events: none; }
+.pos-dot {
+  position: absolute; width: 22px; height: 22px; margin: -11px 0 0 -11px; border-radius: 50%;
+  border: 2.5px solid #fff; background: rgba(255, 90, 54, .55);
+  box-shadow: 0 0 0 1px rgba(0,0,0,.5), 0 2px 8px rgba(0,0,0,.5); pointer-events: none;
+}
+.pos-zoom { display: flex; align-items: center; gap: 12px; margin: 14px 0 0; font-size: 13px; color: var(--muted); }
+.pos-zoom input { flex: 1; accent-color: var(--accent); }
+.pos-zoom b { color: var(--text); min-width: 36px; text-align: right; font-variant-numeric: tabular-nums; }
+.pos-frame { position: relative; overflow: hidden; border-radius: 8px; background: var(--panel-2); outline: 1px solid var(--line); }
+.pos-frame img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.pos-frame.cover { aspect-ratio: 16 / 10; width: 128px; }
+.pos-frame.list { aspect-ratio: 4 / 3; width: 96px; }   /* same shape as the modification list */
+.pos-frame.square { aspect-ratio: 1; width: 72px; }
+.pos-previews { display: flex; gap: 14px; margin-top: 14px; align-items: flex-end; flex-wrap: wrap; }
 .pos-previews > div { display: flex; flex-direction: column; gap: 4px; }
 .pos-previews span { font-size: 12px; color: var(--muted); }
 

@@ -85,10 +85,53 @@ const imgSrc = (img, full = false) => {
   return window.api.imageSrc ? window.api.imageSrc(name) : state.imagesUrl + encodeURIComponent(name);
 };
 
-// Which part of a photo stays visible when it's cropped into a cover/thumbnail (set with
-// "Adjust preview"). Stored on the image as { x, y } in percent; 50/50 = centered.
+// Which part of a photo stays in view when it's cropped into a cover / thumbnail (set with
+// "Adjust preview"). Stored on the image as pos: { x, y, z }:
+//   x, y — the point to keep in view, in percent of the photo (50/50 = centre)
+//   z    — zoom (1 = the photo just fills the frame; up to 3)
+// Images get a data-pos attribute; once an image has loaded, focusCss() works out — from the real
+// frame and photo sizes — how to put that point in the middle of the frame (as far as the photo's
+// edges allow), zoomed in around it.
 const clampPct = (v) => Math.min(100, Math.max(0, Math.round(Number(v) || 0)));
-const imgPos = (img) => (img?.pos ? ` style="object-position:${clampPct(img.pos.x)}% ${clampPct(img.pos.y)}%"` : '');
+const clampZoom = (v) => Math.min(3, Math.max(1, Math.round((Number(v) || 1) * 100) / 100));
+const posAttr = (pos) => `${clampPct(pos.x)},${clampPct(pos.y)},${clampZoom(pos.z)}`;
+const imgPos = (img) => (img?.pos ? ` data-pos="${posAttr(img.pos)}"` : '');
+
+// fw/fh: frame size, iw/ih: photo size (any unit). Returns the CSS for an object-fit: cover image.
+function focusCss({ x, y, z }, fw, fh, iw, ih) {
+  const cover = Math.max(fw / iw, fh / ih);
+  // For one axis: f = focus point (0–1), v = visible part of the photo at zoom 1 (0–1].
+  // Without zoom the visible window starts at s0; object-position p% places it there.
+  // With zoom the window shrinks to v/z and should start at s1; scaling around the frame point o
+  // (transform-origin) moves the window start from s0 to s0 + o·v·(1 − 1/z), so o follows from that.
+  const axis = (f, v) => {
+    const s0 = Math.min(Math.max(f - v / 2, 0), 1 - v);
+    const p = v < 0.999 ? (s0 / (1 - v)) * 100 : 50;
+    let o = 50;
+    if (z > 1) {
+      const vz = v / z;
+      const s1 = Math.min(Math.max(f - vz / 2, 0), 1 - vz);
+      o = Math.min(Math.max((s1 - s0) / (v * (1 - 1 / z)), 0), 1) * 100;
+    }
+    return { p, o };
+  };
+  const ax = axis(x / 100, Math.min(1, fw / (iw * cover)));
+  const ay = axis(y / 100, Math.min(1, fh / (ih * cover)));
+  const r = (n) => Math.round(n * 10) / 10;
+  return `object-position:${r(ax.p)}% ${r(ay.p)}%` +
+    (z > 1 ? `;transform:scale(${z});transform-origin:${r(ax.o)}% ${r(ay.o)}%` : '');
+}
+
+function applyFocus(img) {
+  if (!img.naturalWidth || !img.clientWidth || !img.clientHeight) return;
+  const [x, y, z] = (img.dataset.pos || '').split(',').map(Number);
+  img.style.cssText = focusCss({ x, y, z: clampZoom(z) }, img.clientWidth, img.clientHeight, img.naturalWidth, img.naturalHeight);
+}
+const applyFocusAll = (root = document) => root.querySelectorAll('img[data-pos]').forEach(applyFocus);
+// Images that finish loading later, images added to the page, and frames that change size.
+document.addEventListener('load', (e) => { if (e.target.matches?.('img[data-pos]')) applyFocus(e.target); }, true);
+new MutationObserver(() => requestAnimationFrame(() => applyFocusAll())).observe(document.documentElement, { childList: true, subtree: true });
+window.addEventListener('resize', () => applyFocusAll());
 
 const catColor = (cat) => {
   const i = CATEGORIES.indexOf(cat);
@@ -257,25 +300,36 @@ function confirmDialog({ title, message, confirmLabel = 'Delete', danger = true 
   });
 }
 
-// Lets the user drag a photo inside a cover-shaped frame to choose which part shows in previews.
-// Resolves with the new { x, y } (percent), or null if cancelled.
+// "Adjust preview": the whole photo is shown; tap / drag on it to mark what should stay in view,
+// and zoom to crop in closer. Live previews show the cover, the list thumbnail and the square
+// form thumbnail. Resolves with the new pos { x, y, z }, or null if cancelled.
 function editImagePosition(img) {
   return new Promise((resolve) => {
-    let pos = { x: img.pos ? clampPct(img.pos.x) : 50, y: img.pos ? clampPct(img.pos.y) : 50 };
+    let pos = img.pos
+      ? { x: clampPct(img.pos.x), y: clampPct(img.pos.y), z: clampZoom(img.pos.z) }
+      : { x: 50, y: 50, z: 1 };
     let saved = false;
     const src = imgSrc(img);
+    const preview = (cls, label) =>
+      `<div><div class="pos-frame ${cls}"><img src="${src}" draggable="false" alt=""></div><span>${label}</span></div>`;
     const m = openModal(`
       ${modalHead('Adjust preview')}
       <div class="modal-body">
-        <p class="muted" style="margin:0 0 12px">Drag the photo to choose which part shows on cards and thumbnails.</p>
-        <div class="pos-frame wide"><img src="${src}" draggable="false" alt=""></div>
+        <p class="muted" style="margin:0 0 12px">Tap or drag on the photo to mark what should stay in view. Zoom in to crop closer.</p>
+        <div class="pos-pick"><span class="pos-pick-inner"><img src="${src}" draggable="false" alt=""><i class="pos-dot"></i></span></div>
+        <label class="pos-zoom">
+          <span>Zoom</span>
+          <input type="range" min="1" max="3" step="0.05" value="${pos.z}">
+          <b></b>
+        </label>
         <div class="pos-previews">
-          <div><div class="pos-frame square"><img src="${src}" draggable="false" alt=""></div><span>Thumbnail</span></div>
-          <div><div class="pos-frame photo"><img src="${src}" draggable="false" alt=""></div><span>Gallery</span></div>
+          ${preview('cover', 'Cover')}
+          ${preview('list', 'List')}
+          ${preview('square', 'Thumbnail')}
         </div>
       </div>
       <div class="modal-foot">
-        <button class="btn ghost" data-center>Center</button>
+        <button class="btn ghost" data-center>Reset</button>
         <span class="spacer"></span>
         <button class="btn" data-close>Cancel</button>
         <button class="btn primary" data-ok>Save</button>
@@ -284,38 +338,41 @@ function editImagePosition(img) {
       dismissable: true,
       onClose: () => { if (!saved) resolve(null); },
     });
-    const imgs = $$('.pos-frame img', m.el);
-    const paint = () => imgs.forEach((el) => { el.style.objectPosition = `${pos.x}% ${pos.y}%`; });
+
+    const pick = $('.pos-pick-inner', m.el);
+    const dot = $('.pos-dot', m.el);
+    const zoom = $('.pos-zoom input', m.el);
+    const zoomLabel = $('.pos-zoom b', m.el);
+    const previews = $$('.pos-frame img', m.el);
+    const paint = () => {
+      dot.style.left = pos.x + '%';
+      dot.style.top = pos.y + '%';
+      zoom.value = pos.z;
+      zoomLabel.textContent = pos.z.toFixed(1) + '×';
+      previews.forEach((el) => { el.dataset.pos = posAttr(pos); applyFocus(el); });
+    };
     paint();
 
-    // Dragging right moves the photo right, i.e. shows more of its left side (x goes down).
-    // 100% of x = the full amount the scaled photo overflows the frame, so the photo follows the finger.
-    $$('.pos-frame', m.el).forEach((frame) => {
-      const el = frame.querySelector('img');
-      let start = null;
-      frame.addEventListener('pointerdown', (e) => {
-        if (!el.naturalWidth) return;
-        const fw = frame.clientWidth, fh = frame.clientHeight;
-        const scale = Math.max(fw / el.naturalWidth, fh / el.naturalHeight);
-        start = {
-          px: e.clientX, py: e.clientY, x: pos.x, y: pos.y,
-          ox: el.naturalWidth * scale - fw, oy: el.naturalHeight * scale - fh,
-        };
-        frame.setPointerCapture(e.pointerId);
-        frame.classList.add('dragging');
-      });
-      frame.addEventListener('pointermove', (e) => {
-        if (!start) return;
-        if (start.ox > 1) pos.x = clampPct(start.x - ((e.clientX - start.px) / start.ox) * 100);
-        if (start.oy > 1) pos.y = clampPct(start.y - ((e.clientY - start.py) / start.oy) * 100);
-        paint();
-      });
-      const end = () => { start = null; frame.classList.remove('dragging'); };
-      frame.addEventListener('pointerup', end);
-      frame.addEventListener('pointercancel', end);
+    const setFrom = (e) => {
+      const r = pick.getBoundingClientRect();
+      if (!r.width || !r.height) return;
+      pos.x = clampPct(((e.clientX - r.left) / r.width) * 100);
+      pos.y = clampPct(((e.clientY - r.top) / r.height) * 100);
+      paint();
+    };
+    let dragging = false;
+    pick.addEventListener('pointerdown', (e) => { dragging = true; pick.setPointerCapture(e.pointerId); setFrom(e); });
+    pick.addEventListener('pointermove', (e) => { if (dragging) setFrom(e); });
+    pick.addEventListener('pointerup', () => { dragging = false; });
+    pick.addEventListener('pointercancel', () => { dragging = false; });
+    zoom.addEventListener('input', () => { pos.z = clampZoom(zoom.value); paint(); });
+
+    $('[data-center]', m.el).addEventListener('click', () => { pos = { x: 50, y: 50, z: 1 }; paint(); });
+    $('[data-ok]', m.el).addEventListener('click', () => {
+      saved = true;
+      m.close();
+      resolve({ x: pos.x, y: pos.y, z: pos.z });
     });
-    $('[data-center]', m.el).addEventListener('click', () => { pos = { x: 50, y: 50 }; paint(); });
-    $('[data-ok]', m.el).addEventListener('click', () => { saved = true; m.close(); resolve(pos); });
   });
 }
 

@@ -8,6 +8,15 @@ function esc(v) {
     .replace(/"/g, '&quot;');
 }
 
+// The cover's "Adjust preview" setting (point to keep in view + zoom), same as in the app.
+function coverStyle(pos) {
+  if (!pos) return '';
+  const pct = (v) => Math.min(100, Math.max(0, Math.round(Number(v) || 0)));
+  const x = pct(pos.x), y = pct(pos.y);
+  const z = Math.min(3, Math.max(1, Number(pos.z) || 1));
+  return ` style="object-position:${x}% ${y}%${z > 1 ? `;transform:scale(${z});transform-origin:${x}% ${y}%` : ''}"`;
+}
+
 function money(value, currency) {
   try {
     return new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(Number(value) || 0);
@@ -51,7 +60,7 @@ function buildReportHtml({ cars, currency, includePhotos, includeReceipts, imgUr
     return `
     <section class="car">
       <header class="car-head">
-        ${cover ? `<img class="car-cover" src="${esc(src(cover))}"${cover.pos ? ` style="object-position:${Number(cover.pos.x) || 0}% ${Number(cover.pos.y) || 0}%"` : ''}>` : ''}
+        ${cover ? `<div class="car-cover"><img src="${esc(src(cover))}"${coverStyle(cover.pos)}></div>` : ''}
         <div class="car-meta">
           <div class="eyebrow">Build sheet</div>
           <h1>${esc(car.name)}</h1>
@@ -118,7 +127,8 @@ function buildReportHtml({ cars, currency, includePhotos, includeReceipts, imgUr
   .car { page-break-before: always; }
   .car:first-of-type { page-break-before: auto; }
   .car-head { display: flex; gap: 18px; align-items: stretch; }
-  .car-cover { width: 85mm; height: 60mm; object-fit: cover; border-radius: 6px; }
+  .car-cover { width: 85mm; height: 60mm; border-radius: 6px; overflow: hidden; flex-shrink: 0; }
+  .car-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
   .car-meta { flex: 1; display: flex; flex-direction: column; justify-content: center; }
   .sub { color: #666; font-size: 11pt; }
   .stats { display: flex; gap: 20px; margin-top: 14px; }
