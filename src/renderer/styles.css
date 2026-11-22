@@ -389,6 +389,15 @@ textarea { resize: vertical; min-height: 80px; }
   .thumb .x, .thumb .pos, .cover-adjust { opacity: 1; }
 }
 
+/* "New version available" bar (website / installed web app) */
+.update-bar {
+  position: fixed; left: 50%; bottom: calc(16px + env(safe-area-inset-bottom)); transform: translateX(-50%);
+  z-index: 200; display: flex; align-items: center; gap: 14px; max-width: calc(100vw - 24px);
+  padding: 10px 10px 10px 16px; border-radius: 12px; background: var(--panel-2);
+  border: 1px solid var(--accent); box-shadow: 0 10px 30px rgba(0, 0, 0, .45); font-size: 14px;
+}
+.update-bar .btn { flex-shrink: 0; }
+
 /* Admin dashboard */
 .admin-link { gap: 6px; padding: 6px 12px; color: var(--accent); }
 .admin-link svg { width: 16px; height: 16px; }

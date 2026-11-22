@@ -68,5 +68,14 @@ for (const f of ['styles.css', 'app.js', 'api-web.js', 'vendor/jszip.min.js']) {
   page = page.replace(new RegExp(`((?:src|href)=")${f.replace(/[.]/g, '\\.')}(")`), `$1${f}?v=${hashOf(f)}$2`);
   if (page === before) throw new Error('Could not add a version to ' + f);
 }
+
+// Build id: changes whenever any of the app's files change. The page carries the id it was built
+// with; version.json always holds the latest one, so a running app (e.g. the installed web app on a
+// phone, which can stay open for days) can tell that a newer version is online — see api-web.js.
+const buildId = crypto.createHash('sha256')
+  .update(['styles.css', 'app.js', 'api-web.js'].map(hashOf).join(''))
+  .digest('hex').slice(0, 12);
+page = page.replace('</title>', `</title>\n  <meta name="tb-build" content="${buildId}">`);
+fs.writeFileSync(path.join(dist, 'version.json'), JSON.stringify({ build: buildId, builtAt: new Date().toISOString() }) + '\n');
 fs.writeFileSync(path.join(dist, 'index.html'), page);
-console.log('dist built');
+console.log('dist built · build', buildId);
