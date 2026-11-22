@@ -488,8 +488,10 @@ body.public .topbar-actions { display: none; }
 /* Phones */
 @media (max-width: 640px) {
   .public-cta { grid-template-columns: 1fr; text-align: center; justify-items: center; }
-  .card-designer { grid-template-columns: 1fr; }
-  .cd-preview { width: min(240px, 70vw); justify-self: center; }
+  /* Stacked, with the preview's height set outright: a 9:16 box whose height only comes from
+     aspect-ratio got a too-short row here, and the controls slid underneath it. */
+  .card-designer { display: flex; flex-direction: column; gap: 18px; }
+  .cd-preview { width: min(240px, 62vw); height: calc(min(240px, 62vw) * 16 / 9); align-self: center; }
   .share-link { flex-direction: column; }
   .user-row { grid-template-columns: 36px 1fr; }
   .user-row .counts { grid-column: 1 / -1; gap: 14px; flex-wrap: wrap; }
