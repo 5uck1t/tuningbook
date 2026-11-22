@@ -27,6 +27,9 @@ const ICON = {
   upload: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m17 8-5-5-5 5M12 3v12"/></svg>',
   download: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5M12 15V3"/></svg>',
   search: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>',
+  share: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 13.5 6.8 4M15.4 6.5l-6.8 4"/></svg>',
+  link: '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg>',
+  image: '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg>',
   shield: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 4 6v6c0 4.4 3.4 8.3 8 9 4.6-.7 8-4.6 8-9V6z"/><path d="m9 12 2 2 4-4"/></svg>',
   close: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>',
   oil: '<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3s-6 6.6-6 11a6 6 0 0 0 12 0c0-4.4-6-11-6-11z"/><path d="M9.5 15a2.5 2.5 0 0 0 2.5 2.5"/></svg>',
@@ -58,7 +61,7 @@ function esc(v) {
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
-function money(value, currency = state.db.settings.currency || 'EUR') {
+function money(value, currency = state.db?.settings?.currency || 'EUR') {
   try {
     return new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(Number(value) || 0);
   } catch {
@@ -304,7 +307,7 @@ function confirmDialog({ title, message, confirmLabel = 'Delete', danger = true 
 // "Adjust preview": the whole photo is shown; tap / drag on it to mark what should stay in view,
 // and zoom to crop in closer. Live previews show the cover, the list thumbnail and the square
 // form thumbnail. Resolves with the new pos { x, y, z }, or null if cancelled.
-function editImagePosition(img) {
+function editImagePosition(img, { frames = [['cover', 'Cover'], ['list', 'List'], ['square', 'Thumbnail']] } = {}) {
   return new Promise((resolve) => {
     let pos = img.pos
       ? { x: clampPct(img.pos.x), y: clampPct(img.pos.y), z: clampZoom(img.pos.z) }
@@ -324,9 +327,7 @@ function editImagePosition(img) {
           <b></b>
         </label>
         <div class="pos-previews">
-          ${preview('cover', 'Cover')}
-          ${preview('list', 'List')}
-          ${preview('square', 'Thumbnail')}
+          ${frames.map(([cls, label]) => preview(cls, label)).join('')}
         </div>
       </div>
       <div class="modal-foot">
@@ -588,7 +589,7 @@ function openModForm(car, mod, { prefill, onSaved, heading } = {}) {
 //  Modification detail & lightbox
 // ======================================================================
 
-function openModDetail(car, mod, tab = 'photos', { readOnly = false } = {}) {
+function openModDetail(car, mod, tab = 'photos', { readOnly = false, publicView = false } = {}) {
   const m = openModal(`
     ${modalHead('')}
     <div class="modal-body" style="padding-top:0">
@@ -597,12 +598,12 @@ function openModDetail(car, mod, tab = 'photos', { readOnly = false } = {}) {
           <div class="eyebrow">${[mod.category, fmtDate(mod.date), hasKm(mod.mileage) ? fmtKm(mod.mileage) : ''].filter(Boolean).map(esc).join(' · ')}</div>
           <h2>${esc(mod.title)}</h2>
         </div>
-        <div class="detail-price">${money(mod.price)}</div>
+        <div class="detail-price">${mod.price === null || mod.price === undefined ? '' : money(mod.price, state.publicBuild?.currency)}</div>
       </div>
       ${mod.description ? `<p class="detail-desc">${esc(mod.description)}</p>` : ''}
       <div class="tabs">
         <button data-tab="photos">Build photos (${mod.photos.length})</button>
-        <button data-tab="receipts">Receipts (${mod.receipts.length})</button>
+        ${publicView ? '' : `<button data-tab="receipts">Receipts (${mod.receipts.length})</button>`}
       </div>
       <div id="tab-body"></div>
     </div>
@@ -1063,7 +1064,9 @@ function openSettings() {
 
 function renderCrumbs() {
   const crumbs = $('#crumbs');
-  if (state.view.name === 'car') {
+  if (state.view.name === 'public') {
+    crumbs.innerHTML = '';
+  } else if (state.view.name === 'car') {
     const car = carById(state.view.carId);
     crumbs.innerHTML = `<button data-action="go-garage">Garage</button><span>›</span><span class="current">${esc(car?.name)}</span>`;
   } else if (state.view.name.startsWith('admin')) {
@@ -1178,6 +1181,7 @@ function renderCar(car) {
             <div class="legend">${cats.map(([k, v]) => `<span><i style="background:${catColor(k)}"></i>${esc(k)} · ${money(v)}</span>`).join('')}</div>` : ''}
           <div class="actions" style="padding-top:16px">
             <button class="btn primary" data-action="add-mod">${ICON.plus} ${state.modKind === 'maint' ? 'Add maintenance' : 'Add modification'}</button>
+            <button class="btn" data-action="share-car" data-id="${car.id}">${ICON.share} Share</button>
             <button class="btn" data-action="export-car">${ICON.pdf} Export PDF</button>
             <button class="btn ghost" data-action="edit-car" data-id="${car.id}">${ICON.edit} Edit car</button>
             <button class="btn ghost danger" data-action="delete-car" data-id="${car.id}">${ICON.trash} Delete</button>
@@ -1327,6 +1331,8 @@ function render() {
     renderModList(car);
     $('#mod-search').addEventListener('input', (e) => { state.modSearch = e.target.value; renderModList(car); });
     $('#mod-sort').addEventListener('change', (e) => { state.modSort = e.target.value; renderModList(car); });
+  } else if (state.view.name === 'public') {
+    view.innerHTML = renderPublic();
   } else if (state.view.name === 'admin') {
     view.innerHTML = renderAdmin();
   } else if (state.view.name === 'admin-user') {
@@ -1336,6 +1342,695 @@ function render() {
   } else {
     view.innerHTML = renderGarage();
   }
+}
+
+// ======================================================================
+//  Sharing: public link + build card image
+// ======================================================================
+
+const slugify = (text) => String(text || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '')
+  .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
+
+// 12 random letters/digits (no look-alikes) — the secret part of a public link.
+function newShareId() {
+  const abc = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
+  return [...crypto.getRandomValues(new Uint8Array(12))].map((b) => abc[b % abc.length]).join('');
+}
+
+// e.g. https://5uck1t.github.io/tuningbook/#/b/fiesta-st150-k3J9x2abQr7p — the readable name is
+// decoration, only the id after the last "-" matters.
+const shareLink = (car) => `${window.api.siteUrl}#/b/${slugify(car.name) ? slugify(car.name) + '-' : ''}${car.shareId}`;
+const shareIdFromHash = () => (location.hash.match(/^#\/b\/(?:[^/]*-)?([A-Za-z0-9]{10,32})$/) || [])[1];
+
+async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    // Older WebViews: copy through a temporary text field.
+    const t = Object.assign(document.createElement('textarea'), { value: text });
+    t.style.cssText = 'position:fixed;opacity:0';
+    document.body.appendChild(t);
+    t.select();
+    const ok = document.execCommand('copy');
+    t.remove();
+    return ok;
+  }
+}
+
+// Draws a photo into a box like object-fit: cover, keeping its "Adjust preview" point in view.
+function drawFocused(g, bmp, pos, x, y, w, h) {
+  const z = clampZoom(pos?.z);
+  const fx = (pos ? clampPct(pos.x) : 50) / 100;
+  const fy = (pos ? clampPct(pos.y) : 50) / 100;
+  const scale = Math.max(w / bmp.width, h / bmp.height) * z;
+  const vw = w / scale, vh = h / scale; // the part of the photo that fits, in photo pixels
+  const sx = Math.min(Math.max(fx * bmp.width - vw / 2, 0), bmp.width - vw);
+  const sy = Math.min(Math.max(fy * bmp.height - vh / 2, 0), bmp.height - vh);
+  g.drawImage(bmp, sx, sy, vw, vh, x, y, w, h);
+}
+
+function fitText(g, text, maxWidth) {
+  text = String(text || '');
+  if (g.measureText(text).width <= maxWidth) return text;
+  while (text.length > 1 && g.measureText(text + '…').width > maxWidth) text = text.slice(0, -1);
+  return text.trimEnd() + '…';
+}
+
+// ---------- build card: a 1080 × 1920 "trading card" (Instagram story size) ----------
+// Portrait photo → the photo fills the card and the stats sit on top of it.
+// Landscape photo → the photo is a window at the top, name / stats / mods below it.
+
+const CARD_W = 1080, CARD_H = 1920;
+const CARD = { x: 60, y: 150, w: 960, h: 1620, r: 48 };                                        // the card on the canvas
+const CARD_PHOTO_TALL = { x: CARD.x + 14, y: CARD.y + 14, w: CARD.w - 28, h: CARD.h - 28, r: 36 }; // portrait layout
+const CARD_PHOTO_WIDE = { x: CARD.x + 40, y: CARD.y + 130, w: CARD.w - 80, h: 620, r: 28 };        // landscape layout
+const isWide = (w, h) => w >= h * 1.05;
+const cardTier = (mods) => (mods >= 30 ? 'LEGEND' : mods >= 15 ? 'BUILT' : mods >= 5 ? 'STREET' : 'STOCK+');
+
+// Photos a card can use: the car's cover, then build photos (newest modification first).
+function cardPhotos(car) {
+  const seen = new Set();
+  const out = [];
+  const byDate = [...car.mods].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  for (const img of [car.cover, ...byDate.flatMap((m) => m.photos)]) {
+    if (img?.file && !seen.has(img.file)) { seen.add(img.file); out.push(img); }
+  }
+  return out;
+}
+
+function defaultCardMods(car, showPrices) {
+  const mods = [...car.mods];
+  if (showPrices) mods.sort((a, b) => (Number(b.price) || 0) - (Number(a.price) || 0));
+  else mods.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  return mods.slice(0, 4).map((m) => m.id);
+}
+
+// The card choices (photo, its position on the card, which mods, prices) are remembered per car
+// on this device.
+const cardKey = (car) => `tb-card-${car.id}`;
+function loadCardSettings(car) {
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem(cardKey(car)) || '{}') || {}; } catch { /* storage unavailable */ }
+  const photo = cardPhotos(car).find((p) => p.file === saved.photo) || carCover(car) || null;
+  const showPrices = typeof saved.showPrices === 'boolean' ? saved.showPrices : car.sharePrices !== false;
+  const ids = new Set(car.mods.map((m) => m.id));
+  const mods = Array.isArray(saved.mods) ? saved.mods.filter((id) => ids.has(id)).slice(0, 4) : defaultCardMods(car, showPrices);
+  const pos = photo && saved.photo === photo.file && saved.pos ? saved.pos : photo?.pos || null;
+  return { photo, pos, mods, showPrices };
+}
+function saveCardSettings(car, c) {
+  try {
+    localStorage.setItem(cardKey(car), JSON.stringify({ photo: c.photo?.file || null, pos: c.pos || null, mods: c.mods, showPrices: c.showPrices }));
+  } catch { /* storage unavailable */ }
+}
+
+const cardBitmaps = new Map(); // file → Promise<ImageBitmap>, so redrawing doesn't download again
+function cardBitmap(img) {
+  if (!cardBitmaps.has(img.file)) {
+    const p = (async () => createImageBitmap(new Blob([await window.api.readImage(img.file)]), { imageOrientation: 'from-image' }))();
+    p.catch(() => cardBitmaps.delete(img.file));
+    cardBitmaps.set(img.file, p);
+  }
+  return cardBitmaps.get(img.file);
+}
+
+const roundRectPath = (g, b) => { g.beginPath(); g.roundRect(b.x, b.y, b.w, b.h, b.r); };
+
+// Largest font size (down to `min`) at which text fits `maxWidth`.
+function fitFont(g, text, weight, size, min, maxWidth, family) {
+  for (; size > min; size -= 2) {
+    g.font = `${weight} ${size}px ${family}`;
+    if (g.measureText(text).width <= maxWidth) return size;
+  }
+  g.font = `${weight} ${min}px ${family}`;
+  return min;
+}
+
+async function makeBuildCard(car, settings) {
+  const { photo, pos, showPrices } = settings;
+  const canvas = Object.assign(document.createElement('canvas'), { width: CARD_W, height: CARD_H });
+  const g = canvas.getContext('2d');
+  const FONT = '"Segoe UI", system-ui, -apple-system, Roboto, sans-serif';
+  const ACCENT = '#ff5a36';
+  const M = 44; // inner margin
+  const left = CARD.x + M, right = CARD.x + CARD.w - M, innerW = CARD.w - 2 * M;
+  const spaced = (px) => { if ('letterSpacing' in g) g.letterSpacing = px; };
+
+  let bmp = null;
+  if (photo) {
+    try { bmp = await cardBitmap(photo); } catch (err) { console.warn('Build card: photo unavailable', err); }
+  }
+  const wide = !bmp || isWide(bmp.width, bmp.height);
+
+  // Background: the photo, blurred, behind the card + a warm glow.
+  g.fillStyle = '#0b0d11';
+  g.fillRect(0, 0, CARD_W, CARD_H);
+  if (bmp) {
+    g.save();
+    g.filter = 'blur(50px) saturate(1.3)';
+    g.globalAlpha = 0.5;
+    drawFocused(g, bmp, pos, -100, -100, CARD_W + 200, CARD_H + 200);
+    g.restore();
+  }
+  const glow = g.createRadialGradient(CARD_W / 2, 0, 0, CARD_W / 2, 0, 1200);
+  glow.addColorStop(0, 'rgba(255,90,54,.30)');
+  glow.addColorStop(1, 'rgba(255,90,54,0)');
+  g.fillStyle = glow;
+  g.fillRect(0, 0, CARD_W, CARD_H);
+
+  // The card.
+  g.save();
+  g.shadowColor = 'rgba(0,0,0,.65)';
+  g.shadowBlur = 70;
+  g.shadowOffsetY = 24;
+  roundRectPath(g, CARD);
+  g.fillStyle = '#14171e';
+  g.fill();
+  g.restore();
+  // Subtle diagonal sheen on the card body.
+  g.save();
+  roundRectPath(g, CARD);
+  g.clip();
+  const sheen = g.createLinearGradient(CARD.x, CARD.y, CARD.x + CARD.w, CARD.y + CARD.h);
+  sheen.addColorStop(0, 'rgba(255,255,255,.05)');
+  sheen.addColorStop(0.5, 'rgba(255,255,255,0)');
+  sheen.addColorStop(1, 'rgba(255,90,54,.07)');
+  g.fillStyle = sheen;
+  g.fillRect(CARD.x, CARD.y, CARD.w, CARD.h);
+  g.restore();
+
+  // Photo.
+  const box = wide ? CARD_PHOTO_WIDE : CARD_PHOTO_TALL;
+  g.save();
+  roundRectPath(g, box);
+  g.clip();
+  if (bmp) {
+    drawFocused(g, bmp, pos, box.x, box.y, box.w, box.h);
+  } else {
+    g.fillStyle = '#1c2029';
+    g.fillRect(box.x, box.y, box.w, box.h);
+    g.fillStyle = '#3a4150';
+    g.font = `600 34px ${FONT}`;
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.fillText('No photo yet', box.x + box.w / 2, box.y + box.h / 2);
+    g.textAlign = 'left';
+  }
+  if (!wide) {
+    let shade = g.createLinearGradient(0, box.y, 0, box.y + 260);
+    shade.addColorStop(0, 'rgba(10,12,16,.8)');
+    shade.addColorStop(1, 'rgba(10,12,16,0)');
+    g.fillStyle = shade;
+    g.fillRect(box.x, box.y, box.w, 260);
+    shade = g.createLinearGradient(0, box.y + box.h * 0.36, 0, box.y + box.h);
+    shade.addColorStop(0, 'rgba(10,12,16,0)');
+    shade.addColorStop(0.42, 'rgba(10,12,16,.84)');
+    shade.addColorStop(1, 'rgba(10,12,16,.97)');
+    g.fillStyle = shade;
+    g.fillRect(box.x, box.y, box.w, box.h);
+  } else {
+    // A light vignette inside the photo window.
+    const v = g.createLinearGradient(0, box.y + box.h * 0.6, 0, box.y + box.h);
+    v.addColorStop(0, 'rgba(10,12,16,0)');
+    v.addColorStop(1, 'rgba(10,12,16,.35)');
+    g.fillStyle = v;
+    g.fillRect(box.x, box.y, box.w, box.h);
+  }
+  g.restore();
+  if (wide) {
+    roundRectPath(g, box);
+    g.strokeStyle = 'rgba(255,255,255,.16)';
+    g.lineWidth = 3;
+    g.stroke();
+  }
+
+  // Holo frame.
+  const holo = g.createLinearGradient(CARD.x, CARD.y, CARD.x + CARD.w, CARD.y + CARD.h);
+  holo.addColorStop(0, '#ff5a36');
+  holo.addColorStop(0.3, '#ffc98a');
+  holo.addColorStop(0.55, '#ff5a36');
+  holo.addColorStop(0.8, '#ffb36b');
+  holo.addColorStop(1, '#a8321c');
+  roundRectPath(g, CARD);
+  g.strokeStyle = holo;
+  g.lineWidth = 10;
+  g.stroke();
+
+  // Header: logo + class badge.
+  const hy = CARD.y + 66;
+  g.fillStyle = ACCENT;
+  g.beginPath(); g.roundRect(left, hy - 30, 60, 60, 15); g.fill();
+  g.strokeStyle = '#fff'; g.lineWidth = 4.5; g.lineCap = 'round';
+  g.beginPath(); g.arc(left + 30, hy, 18, 0, Math.PI * 2); g.stroke();
+  g.beginPath(); g.arc(left + 30, hy, 4.5, 0, Math.PI * 2); g.stroke();
+  g.beginPath();
+  g.moveTo(left + 30, hy - 18); g.lineTo(left + 30, hy - 5);
+  g.moveTo(left + 14.4, hy + 9); g.lineTo(left + 26, hy + 2.3);
+  g.moveTo(left + 45.6, hy + 9); g.lineTo(left + 34, hy + 2.3);
+  g.stroke();
+  g.textBaseline = 'middle';
+  g.font = `700 38px ${FONT}`;
+  g.fillStyle = '#fff';
+  g.fillText('Tuning', left + 78, hy + 1);
+  g.fillStyle = ACCENT;
+  g.fillText('Book', left + 78 + g.measureText('Tuning').width, hy + 1);
+
+  const tier = cardTier(car.mods.length);
+  g.font = `800 26px ${FONT}`;
+  spaced('4px');
+  const tw = g.measureText(tier).width + 48;
+  g.beginPath(); g.roundRect(right - tw, hy - 26, tw, 52, 26);
+  g.fillStyle = holo; g.fill();
+  g.fillStyle = '#fff';
+  g.textAlign = 'center';
+  g.fillText(tier, right - tw / 2 + 2, hy + 1);
+  g.textAlign = 'left';
+  spaced('0px');
+
+  // Text block.
+  const picked = settings.mods.map((id) => car.mods.find((m) => m.id === id)).filter(Boolean);
+  const subtitle = carSubtitle(car);
+  const STATS_H = 150, ROW = 70;
+  const blockH = 104 + (subtitle ? 56 : 0) + 30 + STATS_H + (picked.length ? 44 + 46 + picked.length * ROW : 0);
+  const footerY = CARD.y + CARD.h - 62;
+  let y = wide ? box.y + box.h + 46 : footerY - 64 - blockH;
+
+  g.textBaseline = 'top';
+  fitFont(g, car.name, 800, 92, 56, innerW, FONT);
+  g.fillStyle = '#fff';
+  g.fillText(fitText(g, car.name, innerW), left, y);
+  y += 104;
+  if (subtitle) {
+    g.font = `500 38px ${FONT}`;
+    g.fillStyle = '#b9bfcc';
+    g.fillText(fitText(g, subtitle, innerW), left, y);
+    y += 56;
+  }
+  y += 30;
+
+  // Stat boxes.
+  const km = lastMileage(car);
+  const photosCount = car.mods.reduce((n, m) => n + m.photos.length, 0);
+  const stats = [
+    ['MODS', String(car.mods.length)],
+    showPrices ? ['INVESTED', money(carTotal(car))] : ['PHOTOS', String(photosCount)],
+    km !== null ? ['KM', Number(km).toLocaleString()] : ['YEAR', String(car.year || '—')],
+  ];
+  const gap = 20, bw = (innerW - 2 * gap) / 3;
+  stats.forEach(([label, value], i) => {
+    const bx = left + i * (bw + gap);
+    g.beginPath(); g.roundRect(bx, y, bw, STATS_H, 22);
+    g.fillStyle = wide ? 'rgba(255,255,255,.05)' : 'rgba(12,14,19,.62)';
+    g.fill();
+    g.strokeStyle = 'rgba(255,255,255,.09)';
+    g.lineWidth = 2;
+    g.stroke();
+    g.textAlign = 'center';
+    fitFont(g, value, 800, 54, 30, bw - 28, FONT);
+    g.fillStyle = i === 1 && showPrices ? ACCENT : '#fff';
+    g.fillText(value, bx + bw / 2, y + 30);
+    g.font = `700 22px ${FONT}`;
+    spaced('3px');
+    g.fillStyle = '#9aa1ae';
+    g.fillText(label, bx + bw / 2, y + 102);
+    spaced('0px');
+    g.textAlign = 'left';
+  });
+  y += STATS_H;
+
+  // Top mods.
+  if (picked.length) {
+    y += 44;
+    g.font = `800 24px ${FONT}`;
+    spaced('4px');
+    g.fillStyle = ACCENT;
+    g.fillText('TOP MODS', left, y);
+    spaced('0px');
+    y += 46;
+    picked.forEach((m, i) => {
+      const cy = y + ROW / 2;
+      if (i) {
+        g.fillStyle = 'rgba(255,255,255,.07)';
+        g.fillRect(left, y, innerW, 2);
+      }
+      g.beginPath(); g.arc(left + 24, cy, 22, 0, Math.PI * 2);
+      g.fillStyle = 'rgba(255,90,54,.18)'; g.fill();
+      g.fillStyle = ACCENT;
+      g.font = `800 24px ${FONT}`;
+      g.textAlign = 'center';
+      g.textBaseline = 'middle';
+      g.fillText(String(i + 1), left + 24, cy + 1);
+      g.textAlign = 'left';
+      const price = showPrices ? money(m.price) : (m.category || '');
+      g.font = `${showPrices ? 700 : 500} 32px ${FONT}`;
+      const pw = price ? g.measureText(price).width + 24 : 0;
+      if (price) {
+        g.fillStyle = showPrices ? '#fff' : '#9aa1ae';
+        g.textAlign = 'right';
+        g.fillText(fitText(g, price, 300), right, cy + 1);
+        g.textAlign = 'left';
+      }
+      g.font = `600 34px ${FONT}`;
+      g.fillStyle = '#eceef3';
+      g.fillText(fitText(g, m.title, innerW - 64 - Math.min(pw, 324)), left + 64, cy + 1);
+      g.textBaseline = 'top';
+      y += ROW;
+    });
+  }
+
+  // Footer.
+  const site = window.api.siteUrl ? window.api.siteUrl.replace(/^https?:\/\//, '').replace(/\/$/, '') : '';
+  g.fillStyle = 'rgba(255,255,255,.1)';
+  g.fillRect(left, footerY - 40, innerW, 2);
+  g.textBaseline = 'middle';
+  g.font = `500 26px ${FONT}`;
+  g.fillStyle = '#9aa1ae';
+  g.fillText('Track your build with TuningBook', left, footerY);
+  if (site) {
+    g.textAlign = 'right';
+    g.fillStyle = '#c9ced8';
+    g.fillText(site, right, footerY);
+    g.textAlign = 'left';
+  }
+  return new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.92));
+}
+
+const cardFileName = (car) => `${slugify(car.name) || 'tuningbook'}-card.jpg`;
+async function saveCard(car, blob) {
+  const res = await window.api.saveFile(cardFileName(car), new Uint8Array(await blob.arrayBuffer()), 'image/jpeg');
+  if (res?.ok && res.message) toast(res.message, 4000);
+}
+const canShareCard = (car, blob) => !IS_ANDROID && !!navigator.canShare?.({ files: [new File([blob], cardFileName(car), { type: 'image/jpeg' })] });
+async function shareCard(car, blob) {
+  try {
+    await navigator.share({ files: [new File([blob], cardFileName(car), { type: 'image/jpeg' })], title: car.name });
+  } catch { /* cancelled */ }
+}
+
+// The card designer: choose the photo (and its framing on the card), up to 4 mods, prices.
+function openCardDesigner(car, { onClose } = {}) {
+  const c = loadCardSettings(car);
+  const photos = cardPhotos(car);
+  const modsByPrice = [...car.mods].sort((a, b) => (Number(b.price) || 0) - (Number(a.price) || 0));
+  let card = null;
+  let drawing = 0;
+  let timer = 0;
+  const m = openModal(`
+    ${modalHead('Build card')}
+    <div class="modal-body card-designer">
+      <div class="cd-preview"><span class="muted">Drawing…</span></div>
+      <div class="cd-controls">
+        <div class="field">
+          <label>Photo</label>
+          ${photos.length ? `
+          <div class="cd-photos">${photos.map((p, i) => `
+            <button type="button" data-photo="${i}" title="${esc(p.name || '')}"><img src="${imgSrc(p)}" loading="lazy"${imgPos(p)} alt=""></button>`).join('')}
+          </div>
+          <button class="btn" type="button" data-adjust>${ICON.move} Adjust photo on the card</button>` : '<div class="muted">Add build photos to put one on the card.</div>'}
+        </div>
+        <div class="field">
+          <label>Mods on the card <span class="muted cd-count"></span></label>
+          ${car.mods.length ? `<div class="cd-mods">${modsByPrice.map((mod) => `
+            <label class="check"><input type="checkbox" data-mod="${mod.id}"><span>${esc(mod.title)}</span><b>${money(mod.price)}</b></label>`).join('')}
+          </div>` : '<div class="muted">No modifications yet.</div>'}
+        </div>
+        <label class="check"><input type="checkbox" data-prices ${c.showPrices ? 'checked' : ''}> Show prices</label>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn ghost" data-reset>Reset</button>
+      <span class="spacer"></span>
+      <button class="btn" data-close>Close</button>
+      <button class="btn" data-share-card hidden>Share…</button>
+      <button class="btn primary" data-download disabled>${ICON.download} ${IS_ANDROID ? 'Share / save' : 'Download'}</button>
+    </div>`, {
+    className: 'wide',
+    dismissable: true,
+    onClose: () => { clearTimeout(timer); if (card) URL.revokeObjectURL(card.url); onClose?.(); },
+  });
+
+  const sync = () => {
+    $$('[data-photo]', m.el).forEach((b) => b.classList.toggle('on', photos[Number(b.dataset.photo)]?.file === c.photo?.file));
+    $$('[data-mod]', m.el).forEach((box) => {
+      box.checked = c.mods.includes(box.dataset.mod);
+      box.disabled = !box.checked && c.mods.length >= 4;
+      box.closest('label').classList.toggle('disabled', box.disabled);
+    });
+    const count = $('.cd-count', m.el);
+    if (count) count.textContent = `${c.mods.length} / 4`;
+    $('[data-adjust]', m.el)?.toggleAttribute('disabled', !c.photo);
+  };
+
+  const redraw = () => {
+    clearTimeout(timer);
+    timer = setTimeout(async () => {
+      const mine = ++drawing;
+      const blob = await makeBuildCard(car, c);
+      if (mine !== drawing || !blob || !m.el.isConnected) return;
+      if (card) URL.revokeObjectURL(card.url);
+      card = { blob, url: URL.createObjectURL(blob) };
+      $('.cd-preview', m.el).innerHTML = `<img src="${card.url}" alt="Build card preview">`;
+      $('[data-download]', m.el).disabled = false;
+      $('[data-share-card]', m.el).hidden = !canShareCard(car, blob);
+    }, 120);
+  };
+  const changed = () => { saveCardSettings(car, c); sync(); redraw(); };
+
+  m.el.addEventListener('change', (e) => {
+    if (e.target.matches('[data-mod]')) {
+      const id = e.target.dataset.mod;
+      c.mods = e.target.checked ? [...c.mods.filter((x) => x !== id), id].slice(0, 4) : c.mods.filter((x) => x !== id);
+      changed();
+    } else if (e.target.matches('[data-prices]')) {
+      c.showPrices = e.target.checked;
+      changed();
+    }
+  });
+
+  m.el.addEventListener('click', async (e) => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    if (b.dataset.photo !== undefined) {
+      c.photo = photos[Number(b.dataset.photo)];
+      c.pos = c.photo.pos || null;
+      changed();
+    } else if (b.matches('[data-adjust]') && c.photo) {
+      let wide = true;
+      try { const bmp = await cardBitmap(c.photo); wide = isWide(bmp.width, bmp.height); } catch { /* keep wide */ }
+      const pos = await editImagePosition({ ...c.photo, pos: c.pos || undefined }, { frames: [[wide ? 'card-wide' : 'card-tall', 'On the card']] });
+      if (pos) { c.pos = pos; changed(); }
+    } else if (b.matches('[data-reset]')) {
+      try { localStorage.removeItem(cardKey(car)); } catch { /* storage unavailable */ }
+      Object.assign(c, loadCardSettings(car));
+      $('[data-prices]', m.el).checked = c.showPrices;
+      sync();
+      redraw();
+    } else if (b.matches('[data-download]') && card) {
+      saveCard(car, card.blob);
+    } else if (b.matches('[data-share-card]') && card) {
+      shareCard(car, card.blob);
+    }
+  });
+
+  sync();
+  redraw();
+}
+
+function openShare(car) {
+  let card = null; // { blob, url }
+  let drawing = 0;
+  const m = openModal(`
+    ${modalHead('Share build')}
+    <div class="modal-body share-body"></div>
+    <div class="modal-foot"><button class="btn" data-close>Done</button></div>`, {
+    className: 'small',
+    dismissable: true,
+    onClose: () => { if (card) URL.revokeObjectURL(card.url); },
+  });
+  const body = $('.share-body', m.el);
+  const showPrices = () => car.sharePrices !== false;
+
+  const draw = () => {
+    const shared = !!car.shareId;
+    body.innerHTML = `
+      <section class="share-option">
+        <div class="share-ico">${ICON.link}</div>
+        <div class="share-main">
+          <h3>Public link</h3>
+          <p class="muted">Anyone with the link can see this car’s photos and modifications${showPrices() ? ' with prices' : ''}.
+            Receipts, the plan and notes stay private.</p>
+          <label class="check"><input type="checkbox" data-prices ${showPrices() ? 'checked' : ''}> Show prices on the public page</label>
+          ${shared ? `
+            <div class="share-link"><input type="text" readonly value="${esc(shareLink(car))}"><button class="btn primary" data-copy>Copy link</button></div>
+            <div class="share-row">
+              <button class="btn ghost" data-open-link>Open page</button>
+              <button class="btn ghost danger" data-stop>Stop sharing</button>
+            </div>` : `
+            <button class="btn primary" data-create>${ICON.link} Create &amp; copy link</button>`}
+        </div>
+      </section>
+      <section class="share-option">
+        <div class="share-ico">${ICON.image}</div>
+        <div class="share-main">
+          <h3>Build card</h3>
+          <p class="muted">A trading-card style image, sized for Instagram stories (1080 × 1920).</p>
+          <div class="share-card">
+            <div class="card-preview">${card ? `<img src="${card.url}" alt="Build card preview">` : '<span class="muted">Drawing…</span>'}</div>
+            <div class="share-card-actions">
+              <button class="btn" data-customize>${ICON.edit} Customize card</button>
+              <button class="btn primary" data-card ${card ? '' : 'disabled'}>${ICON.download} ${IS_ANDROID ? 'Share / save image' : 'Download image'}</button>
+              ${card && canShareCard(car, card.blob) ? '<button class="btn" data-card-share>Share…</button>' : ''}
+            </div>
+          </div>
+        </div>
+      </section>`;
+  };
+
+  const redrawCard = async () => {
+    const mine = ++drawing;
+    const blob = await makeBuildCard(car, loadCardSettings(car));
+    if (mine !== drawing || !blob) return;
+    if (card) URL.revokeObjectURL(card.url);
+    card = { blob, url: URL.createObjectURL(blob) };
+    if (m.el.isConnected) draw();
+  };
+
+  // Saves the car; if sharing isn't set up in the database yet, undoes the change and says so.
+  const saveSharing = async (undo) => {
+    try {
+      await window.api.save(state.db);
+      return true;
+    } catch (err) {
+      undo();
+      draw();
+      toast(/share_(id|prices)/.test(err.message)
+        ? 'Sharing isn’t set up yet — run web/supabase/004-sharing.sql in Supabase first.'
+        : 'Saving failed: ' + err.message, 7000);
+      return false;
+    }
+  };
+
+  body.addEventListener('change', async (e) => {
+    if (!e.target.matches('[data-prices]')) return;
+    const before = showPrices();
+    car.sharePrices = e.target.checked;
+    draw();
+    if (car.shareId) await saveSharing(() => { car.sharePrices = before; });
+  });
+
+  body.addEventListener('click', async (e) => {
+    const btn = e.target.closest('button');
+    if (!btn) return;
+    if (btn.matches('[data-create]')) {
+      const had = 'shareId' in car;
+      car.shareId = newShareId();
+      car.sharePrices = showPrices();
+      btn.disabled = true;
+      if (!(await saveSharing(() => { if (had) car.shareId = null; else { delete car.shareId; delete car.sharePrices; } }))) return;
+      draw();
+      toast((await copyText(shareLink(car))) ? 'Link created and copied' : 'Link created');
+    } else if (btn.matches('[data-copy]')) {
+      toast((await copyText(shareLink(car))) ? 'Link copied' : 'Couldn’t copy — select the link and copy it');
+    } else if (btn.matches('[data-open-link]')) {
+      window.api.openLink(shareLink(car));
+    } else if (btn.matches('[data-stop]')) {
+      const ok = await confirmDialog({
+        title: 'Stop sharing?',
+        message: 'The link stops working right away. If you share again later, you’ll get a new link.',
+        confirmLabel: 'Stop sharing',
+      });
+      if (!ok) return;
+      const id = car.shareId;
+      car.shareId = null;
+      if (await saveSharing(() => { car.shareId = id; })) { draw(); toast('Sharing stopped'); }
+    } else if (btn.matches('[data-customize]')) {
+      openCardDesigner(car, { onClose: redrawCard });
+    } else if (btn.matches('[data-card]') && card) {
+      saveCard(car, card.blob);
+    } else if (btn.matches('[data-card-share]') && card) {
+      shareCard(car, card.blob);
+    }
+  });
+
+  draw();
+  redrawCard();
+}
+
+// ---------- the public build page (opened from a shared link, no sign-in) ----------
+
+async function bootPublic(shareId) {
+  state.publicMode = true;
+  document.body.classList.add('public');
+  state.view = { name: 'public' };
+  $('#view').innerHTML = loadingBlock('Loading build…');
+  try {
+    state.publicBuild = await window.api.sharedBuild(shareId);
+  } catch (err) {
+    state.publicBuild = { error: err.message };
+  }
+  render();
+  document.title = state.publicBuild?.car ? `${state.publicBuild.car.name} · TuningBook` : 'TuningBook';
+  window.addEventListener('hashchange', () => location.reload());
+}
+
+function renderPublic() {
+  const pb = state.publicBuild;
+  const home = location.pathname;
+  const cta = `<a class="btn primary" href="${esc(home)}">${ICON.plus} Start your own garage — free</a>`;
+  if (!pb || pb.error) {
+    return `
+      <div class="view-inner"><div class="empty">
+        <div style="color:var(--accent)">${ICON.car}</div>
+        <h2>${pb?.error ? 'Couldn’t load this build' : 'This build isn’t shared anymore'}</h2>
+        <div>${pb?.error ? esc(pb.error) : 'The owner may have stopped sharing it, or the link is incomplete.'}</div>
+        <div class="empty-actions">${cta}</div>
+      </div></div>`;
+  }
+  const { car, currency } = pb;
+  const prices = car.sharePrices;
+  const cover = carCover(car);
+  const photos = car.mods.reduce((n, m) => n + m.photos.length, 0);
+  return `
+    <div class="view-inner">
+      <section class="car-hero">
+        <div class="cover">${cover ? `<img src="${imgSrc(cover)}"${imgPos(cover)}>` : ICON.car}</div>
+        <div class="hero-body">
+          <div class="eyebrow">Shared build</div>
+          <h1>${esc(car.name)}</h1>
+          ${carSubtitle(car) ? `<div class="sub">${esc(carSubtitle(car))}</div>` : ''}
+          <div class="hero-stats">
+            ${prices ? `<div><b>${money(carTotal(car), currency)}</b><span>Invested</span></div>` : ''}
+            <div><b>${car.mods.length}</b><span>Mods</span></div>
+            <div><b>${photos}</b><span>Photos</span></div>
+          </div>
+          <div class="actions" style="padding-top:16px">${cta}</div>
+        </div>
+      </section>
+      <h2 class="admin-h2">Modifications</h2>
+      ${car.mods.length ? `<div class="mod-list">${car.mods.map((m) => `
+        <div class="mod-row" role="button" tabindex="0" data-action="public-mod" data-id="${m.id}">
+          <div class="mod-thumb">${m.photos[0] ? `<img src="${imgSrc(m.photos[0])}" loading="lazy"${imgPos(m.photos[0])}>` : ICON.wrench}</div>
+          <div style="min-width:0">
+            <h3>${esc(m.title)}</h3>
+            <div class="meta">
+              ${m.category ? `<span class="chip" style="background:${catColor(m.category)}22;color:${catColor(m.category)}">${esc(m.category)}</span>` : ''}
+              ${m.date ? `<span>${ICON.calendar}${fmtDate(m.date)}</span>` : ''}
+              ${hasKm(m.mileage) ? `<span title="Mileage">${ICON.gauge}${fmtKm(m.mileage)}</span>` : ''}
+              <span title="Build photos">${ICON.camera}${m.photos.length}</span>
+            </div>
+          </div>
+          <div class="right">${prices && m.price !== null ? `<div class="price">${money(m.price, currency)}</div>` : ''}</div>
+        </div>`).join('')}</div>` : '<div class="gallery-empty">No modifications yet.</div>'}
+      <section class="public-cta">
+        <div class="brand-mark big">${$('.brand-mark')?.innerHTML || ''}</div>
+        <div>
+          <h2>Made with TuningBook</h2>
+          <p class="muted">Track your own build — modifications, costs, mileage, build photos and receipts, on every device.</p>
+        </div>
+        ${cta}
+      </section>
+    </div>`;
 }
 
 // ======================================================================
@@ -1545,7 +2240,16 @@ const actions = {
     if (mod) openModDetail(car, mod, 'photos', { readOnly: true });
   },
   'go-back': () => goBack(),
-  'go-garage': () => { state.view = { name: 'garage' }; state.modSearch = ''; render(); $('#view').scrollTop = 0; },
+  'share-car': (id) => openShare(carById(id)),
+  'public-mod': (id) => {
+    const car = state.publicBuild?.car;
+    const mod = car?.mods.find((m) => m.id === id);
+    if (mod) openModDetail(car, mod, 'photos', { readOnly: true, publicView: true });
+  },
+  'go-garage': () => {
+    if (state.publicMode) { location.href = location.pathname; return; } // public page → sign-in / own garage
+    state.view = { name: 'garage' }; state.modSearch = ''; render(); $('#view').scrollTop = 0;
+  },
   'open-car': (id) => { state.view = { name: 'car', carId: id }; state.modSearch = ''; state.carTab = 'mods'; state.modKind = 'mods'; render(); $('#view').scrollTop = 0; },
   'add-car': () => openCarForm(),
   'edit-car': (id) => openCarForm(carById(id)),
@@ -1598,6 +2302,8 @@ document.addEventListener('drop', (e) => e.preventDefault());
 // ======================================================================
 
 (async function boot() {
+  const shareId = shareIdFromHash();
+  if (shareId && window.api.sharedBuild) { await bootPublic(shareId); return; }
   const { db, imagesUrl } = await window.api.load();
   state.imagesUrl = imagesUrl;
   state.db = db;

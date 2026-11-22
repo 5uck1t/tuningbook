@@ -6,7 +6,7 @@
 // Each of those is bundled by esbuild into one file that sets `window.api`.
 import { createClient } from '@supabase/supabase-js';
 import { buildReportHtml } from '../../src/report.js';
-import { SUPABASE_URL, SUPABASE_KEY, PHOTO_BUCKET } from './config.js';
+import { SUPABASE_URL, SUPABASE_KEY, PHOTO_BUCKET, SITE_URL } from './config.js';
 import { compressImage } from './compress.js';
 import { showAuth, showFatal } from './auth-ui.js';
 
@@ -49,10 +49,17 @@ function toRows(db) {
   const mods = new Map();
   const plans = new Map();
   for (const c of db.cars) {
-    cars.set(c.id, JSON.stringify({
+    const row = {
       id: c.id, user_id: user.id, name: c.name, make: nul(c.make), model: nul(c.model), year: nul(c.year),
       notes: nul(c.notes), cover: c.cover || null, created_at: c.createdAt || new Date().toISOString(),
-    }));
+    };
+    // Sharing columns (supabase/004-sharing.sql) are only sent for cars that have them, so saving
+    // keeps working on a database where that file hasn't been run yet.
+    if ('shareId' in c) {
+      row.share_id = c.shareId || null;
+      row.share_prices = c.sharePrices !== false;
+    }
+    cars.set(c.id, JSON.stringify(row));
     for (const m of c.mods) {
       mods.set(m.id, JSON.stringify({
         id: m.id, user_id: user.id, car_id: c.id, title: m.title, price: Number(m.price) || 0,
@@ -74,10 +81,14 @@ function toRows(db) {
 }
 
 function fromRows(carRows, modRows, planRows, settingsRow) {
-  const cars = carRows.map((r) => ({
-    id: r.id, name: r.name, make: r.make || '', model: r.model || '', year: r.year || '', notes: r.notes || '',
-    cover: r.cover || null, createdAt: r.created_at, mods: [], plan: [],
-  }));
+  const cars = carRows.map((r) => {
+    const car = {
+      id: r.id, name: r.name, make: r.make || '', model: r.model || '', year: r.year || '', notes: r.notes || '',
+      cover: r.cover || null, createdAt: r.created_at, mods: [], plan: [],
+    };
+    if ('share_id' in r) { car.shareId = r.share_id; car.sharePrices = r.share_prices !== false; }
+    return car;
+  });
   const byId = new Map(cars.map((c) => [c.id, c]));
   for (const r of modRows) {
     byId.get(r.car_id)?.mods.push({
@@ -238,10 +249,58 @@ export async function reportHtml({ carIds, includePhotos, includeReceipts }) {
   return { html, name: name.replace(/[\\/:*?"<>|]+/g, '').trim() || 'TuningBook' };
 }
 
+// ---------- public build links (supabase/004-sharing.sql) ----------
+
+// Loads a shared car for the public page — works without signing in. Returns null when the link
+// doesn't exist (anymore). Photos get `_src`, a signed link the public is allowed to open.
+async function sharedBuild(shareId) {
+  const data = check(await supabase.rpc('get_shared_build', { p_share_id: shareId }));
+  if (!data) return null;
+  const owner = data.owner;
+  const car = {
+    id: data.car.id, name: data.car.name, make: data.car.make || '', model: data.car.model || '',
+    year: data.car.year || '', notes: '', cover: data.car.cover || null, sharePrices: data.car.share_prices !== false,
+    plan: [],
+    mods: (data.mods || []).map((m) => ({
+      id: m.id, title: m.title, category: m.category || '', date: m.date || '', mileage: m.mileage,
+      price: m.price === null || m.price === undefined ? null : Number(m.price),
+      description: m.description || '', photos: m.photos || [], receipts: [],
+    })),
+  };
+  const images = [car.cover, ...car.mods.flatMap((m) => m.photos)].filter((i) => i && SAFE_NAME.test(i.file || ''));
+  const names = [...new Set(images.map((i) => i.file))];
+  const signed = new Map();
+  for (let i = 0; i < names.length; i += 100) {
+    const chunk = names.slice(i, i + 100);
+    const res = await photos().createSignedUrls(chunk.map((n) => `${owner}/${n}`), SIGNED_URL_TTL);
+    (res.data || []).forEach((d, j) => { if (d.signedUrl) signed.set(chunk[j], d.signedUrl); });
+  }
+  for (const img of images) img._src = signed.get(img.file) || BLANK;
+  return { car, currency: data.currency || 'EUR' };
+}
+
+// Downloads a file the browser way (website).
+function downloadFile(fileName, bytes, type) {
+  const url = URL.createObjectURL(new Blob([bytes], { type }));
+  const a = Object.assign(document.createElement('a'), { href: url, download: fileName });
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
 // ---------- the shared api ----------
 
 export const cloudApi = {
   platform: 'web',
+  siteUrl: SITE_URL, // public links always point at the website
+  sharedBuild,
+
+  // Saves a file the user asked for (e.g. a build card). Desktop / Android replace this.
+  async saveFile(fileName, bytes, type) {
+    downloadFile(fileName, bytes, type);
+    return { ok: true, message: 'Downloaded ' + fileName };
+  },
   compactImages: true, // only compressed images are stored; no separate previews
   acceptsFiles: true, // drag & drop passes File objects
 
@@ -333,12 +392,7 @@ export const cloudApi = {
   savePreview: async () => null,
 
   async saveBackup(fileName, bytes) {
-    const url = URL.createObjectURL(new Blob([bytes], { type: 'application/zip' }));
-    const a = Object.assign(document.createElement('a'), { href: url, download: fileName });
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    downloadFile(fileName, bytes, 'application/zip');
     return { ok: true, message: 'Garage file downloaded' };
   },
 

@@ -121,6 +121,20 @@ window.api = {
     return { ok: true, message: 'Garage file ready' };
   },
 
+  // Other files (e.g. a build card image) go to the share sheet: Instagram, WhatsApp, Gallery, Files…
+  async saveFile(fileName, bytes) {
+    const path = fileName.replace(/[^\w .-]+/g, '') || 'file';
+    await writeBytes(path, bytes, Directory.Cache);
+    const { uri } = await Filesystem.getUri({ path, directory: Directory.Cache });
+    try {
+      await Share.share({ files: [uri], dialogTitle: 'Share or save' });
+    } catch (err) {
+      if (/cancel/i.test(String(err?.message || err))) return { ok: false };
+      throw err;
+    }
+    return { ok: true };
+  },
+
   async exportPdf(opts) {
     const report = await reportHtml(opts);
     if (!report) return { ok: false };

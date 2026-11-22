@@ -6,6 +6,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('native', {
   saveBackup: (fileName, bytes) => ipcRenderer.invoke('backup:save', fileName, bytes),
   savePdf: (html, name) => ipcRenderer.invoke('pdf:save', html, name),
+  saveFile: (fileName, bytes) => ipcRenderer.invoke('file:save', fileName, bytes),
   openLink: (url) => ipcRenderer.invoke('app:openLink', url),
   readLocalGarage: () => ipcRenderer.invoke('local:read'),
   readLocalImage: (file) => ipcRenderer.invoke('local:image', file),

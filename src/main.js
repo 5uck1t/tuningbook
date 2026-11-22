@@ -78,6 +78,20 @@ ipcMain.handle('backup:save', async (_e, fileName, bytes) => {
   return { ok: true, message: 'Garage exported: ' + save.filePath };
 });
 
+// Any other file the user asked to save (e.g. a build card image).
+ipcMain.handle('file:save', async (_e, fileName, bytes) => {
+  const safeName = String(fileName || 'file').replace(/[\\/:*?"<>|]+/g, '').trim() || 'file';
+  const ext = path.extname(safeName).slice(1).toLowerCase();
+  const save = await dialog.showSaveDialog(mainWindow, {
+    title: 'Save',
+    defaultPath: path.join(app.getPath('pictures'), safeName),
+    filters: ext ? [{ name: ext.toUpperCase(), extensions: [ext] }] : [],
+  });
+  if (save.canceled || !save.filePath) return { ok: false };
+  await fsp.writeFile(save.filePath, Buffer.from(bytes));
+  return { ok: true, message: 'Saved: ' + save.filePath };
+});
+
 ipcMain.handle('app:openLink', (_e, url) => {
   if (/^https?:\/\//i.test(String(url))) return shell.openExternal(url);
 });

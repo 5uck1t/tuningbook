@@ -68,6 +68,7 @@ img { display: block; }
   transition: background .15s, border-color .15s, transform .05s;
 }
 .btn:hover { border-color: #3a4150; background: #252a35; }
+a.btn { text-decoration: none; }
 .btn:active { transform: translateY(1px); }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 .btn.primary:hover { background: var(--accent-2); border-color: var(--accent-2); }
@@ -398,6 +399,66 @@ textarea { resize: vertical; min-height: 80px; }
 }
 .update-bar .btn { flex-shrink: 0; }
 
+/* Share window */
+.share-body { display: grid; gap: 14px; }
+.share-body > .check { margin: 0; }
+.share-option {
+  display: grid; grid-template-columns: 40px 1fr; gap: 14px;
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 12px; padding: 14px;
+}
+.share-ico {
+  width: 40px; height: 40px; border-radius: 10px; display: grid; place-items: center;
+  background: rgba(255, 90, 54, .14); color: var(--accent);
+}
+.share-main { min-width: 0; }
+.share-main h3 { margin: 2px 0 4px; font-size: 15px; }
+.share-main p { margin: 0 0 10px; font-size: 13px; }
+.share-link { display: flex; gap: 8px; }
+.share-link input { flex: 1; min-width: 0; font-size: 13px; }
+.share-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.share-body .check { margin: 0 0 10px; font-size: 13.5px; }
+.share-card { display: flex; gap: 14px; align-items: flex-start; flex-wrap: wrap; }
+.share-card-actions { display: flex; flex-direction: column; gap: 8px; }
+.card-preview, .cd-preview {
+  aspect-ratio: 9 / 16; width: 130px; border-radius: 10px; overflow: hidden; background: var(--panel);
+  display: grid; place-items: center; border: 1px solid var(--line); flex-shrink: 0;
+}
+.card-preview img, .cd-preview img { width: 100%; height: 100%; display: block; }
+
+/* Build card designer */
+.card-designer { display: grid; grid-template-columns: 280px 1fr; gap: 22px; align-items: start; }
+.cd-preview { width: 100%; }
+.cd-controls { min-width: 0; }
+.cd-photos { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 6px; margin-bottom: 10px; }
+.cd-photos button {
+  position: relative; flex: 0 0 64px; height: 64px; padding: 0; border-radius: 8px; overflow: hidden;
+  border: 2px solid transparent; background: var(--panel-2); cursor: pointer;
+}
+.cd-photos button img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.cd-photos button.on { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(255, 90, 54, .3); }
+.cd-mods { max-height: 290px; overflow-y: auto; border: 1px solid var(--line); border-radius: 10px; padding: 4px 10px; }
+.field .cd-mods label.check { font-size: 14px; color: var(--text); text-transform: none; letter-spacing: 0; font-weight: 500; }
+.cd-count { text-transform: none; letter-spacing: 0; }
+.cd-mods .check { display: grid; grid-template-columns: 16px 1fr auto; gap: 10px; margin: 0; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.cd-mods .check:last-child { border-bottom: 0; }
+.cd-mods .check span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cd-mods .check b { font-weight: 600; color: var(--muted); font-size: 13px; }
+.cd-mods .check.disabled { opacity: .45; cursor: default; }
+.pos-frame.card-tall { aspect-ratio: 932 / 1592; width: 110px; }
+.pos-frame.card-wide { aspect-ratio: 880 / 620; width: 190px; }
+
+/* Public build page (shared link) */
+body.public .topbar-actions { display: none; }
+.public-cta {
+  display: grid; grid-template-columns: auto 1fr auto; gap: 18px; align-items: center; margin-top: 28px;
+  padding: 20px; border-radius: 14px; border: 1px solid rgba(255, 90, 54, .4);
+  background: linear-gradient(135deg, rgba(255, 90, 54, .12), rgba(255, 90, 54, .03));
+}
+.public-cta h2 { margin: 0 0 4px; font-size: 18px; }
+.public-cta p { margin: 0; font-size: 13.5px; }
+.brand-mark.big { width: 48px; height: 48px; border-radius: 12px; }
+.brand-mark.big svg { width: 28px; height: 28px; }
+
 /* Admin dashboard */
 .admin-link { gap: 6px; padding: 6px 12px; color: var(--accent); }
 .admin-link svg { width: 16px; height: 16px; }
@@ -426,6 +487,10 @@ textarea { resize: vertical; min-height: 80px; }
 
 /* Phones */
 @media (max-width: 640px) {
+  .public-cta { grid-template-columns: 1fr; text-align: center; justify-items: center; }
+  .card-designer { grid-template-columns: 1fr; }
+  .cd-preview { width: min(240px, 70vw); justify-self: center; }
+  .share-link { flex-direction: column; }
   .user-row { grid-template-columns: 36px 1fr; }
   .user-row .counts { grid-column: 1 / -1; gap: 14px; flex-wrap: wrap; }
   .admin-link span { display: none; }

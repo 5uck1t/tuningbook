@@ -12,6 +12,7 @@ window.api = {
   platform: 'desktop',
 
   saveBackup: (fileName, bytes) => native.saveBackup(fileName, bytes),
+  saveFile: (fileName, bytes) => native.saveFile(fileName, bytes),
 
   async exportPdf(opts) {
     const report = await reportHtml(opts);

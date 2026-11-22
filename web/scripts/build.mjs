@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
+import { SITE_URL } from '../src/config.js';
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const renderer = path.join(root, '..', 'src', 'renderer');
@@ -26,7 +27,13 @@ html = html.replace('</title>', `</title>
   <meta name="theme-color" content="#0f1115">
   <link rel="icon" href="icon.png">
   <link rel="apple-touch-icon" href="icon.png">
-  <link rel="manifest" href="manifest.webmanifest">`);
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="TuningBook">
+  <meta property="og:title" content="TuningBook — track your car build">
+  <meta property="og:description" content="Modifications, costs, mileage, build photos and receipts for every car you own.">
+  <meta property="og:image" content="${SITE_URL}icon.png">
+  <meta name="twitter:card" content="summary">`);
 // window.api must exist before app.js boots.
 html = html.replace('<script src="vendor/jszip.min.js"></script>', '<script src="api-web.js"></script>\n  <script src="vendor/jszip.min.js"></script>');
 if (!html.includes('api-web.js')) throw new Error('Could not inject api-web.js into index.html');
