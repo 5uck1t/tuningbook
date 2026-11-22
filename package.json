@@ -1,7 +1,7 @@
 {
   "name": "tuningbook",
   "productName": "TuningBook",
-  "version": "1.1.2",
+  "version": "1.2.0",
   "description": "Track your car modifications, costs, build photos and receipts.",
   "author": "TuningBook",
   "main": "src/main.js",

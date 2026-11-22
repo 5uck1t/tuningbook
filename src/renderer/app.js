@@ -27,6 +27,7 @@ const ICON = {
   upload: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m17 8-5-5-5 5M12 3v12"/></svg>',
   download: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5M12 15V3"/></svg>',
   search: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>',
+  shield: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 4 6v6c0 4.4 3.4 8.3 8 9 4.6-.7 8-4.6 8-9V6z"/><path d="m9 12 2 2 4-4"/></svg>',
   close: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>',
   oil: '<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3s-6 6.6-6 11a6 6 0 0 0 12 0c0-4.4-6-11-6-11z"/><path d="M9.5 15a2.5 2.5 0 0 0 2.5 2.5"/></svg>',
   move: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M2 12h20M12 2 9 5M12 2l3 3M12 22l-3-3M12 22l3-3M2 12l3-3M2 12l3 3M22 12l-3-3M22 12l-3 3"/></svg>',
@@ -57,8 +58,7 @@ function esc(v) {
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
-function money(value) {
-  const currency = state.db.settings.currency || 'EUR';
+function money(value, currency = state.db.settings.currency || 'EUR') {
   try {
     return new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(Number(value) || 0);
   } catch {
@@ -81,6 +81,7 @@ const lastMileage = (car) => {
 };
 
 const imgSrc = (img, full = false) => {
+  if (img._src) return img._src; // admin view of another user's garage (see cloud.js adminApi)
   const name = full ? img.file : img.preview || img.file;
   return window.api.imageSrc ? window.api.imageSrc(name) : state.imagesUrl + encodeURIComponent(name);
 };
@@ -587,7 +588,7 @@ function openModForm(car, mod, { prefill, onSaved, heading } = {}) {
 //  Modification detail & lightbox
 // ======================================================================
 
-function openModDetail(car, mod, tab = 'photos') {
+function openModDetail(car, mod, tab = 'photos', { readOnly = false } = {}) {
   const m = openModal(`
     ${modalHead('')}
     <div class="modal-body" style="padding-top:0">
@@ -606,10 +607,10 @@ function openModDetail(car, mod, tab = 'photos') {
       <div id="tab-body"></div>
     </div>
     <div class="modal-foot">
-      <button class="btn danger" data-del>${ICON.trash} Delete</button>
+      ${readOnly ? '' : `<button class="btn danger" data-del>${ICON.trash} Delete</button>`}
       <span class="spacer"></span>
       <button class="btn" data-close>Close</button>
-      <button class="btn primary" data-edit>${ICON.edit} Edit</button>
+      ${readOnly ? '' : `<button class="btn primary" data-edit>${ICON.edit} Edit</button>`}
     </div>`, { className: 'wide', dismissable: true });
 
   const showTab = (name) => {
@@ -627,8 +628,8 @@ function openModDetail(car, mod, tab = 'photos') {
     const b = e.target.closest('[data-tab]');
     if (b) showTab(b.dataset.tab);
   });
-  $('[data-edit]', m.el).addEventListener('click', () => openModForm(car, mod));
-  $('[data-del]', m.el).addEventListener('click', async () => {
+  $('[data-edit]', m.el)?.addEventListener('click', () => openModForm(car, mod));
+  $('[data-del]', m.el)?.addEventListener('click', async () => {
     if (await deleteMod(car, mod)) m.close();
   });
   showTab(tab === 'receipts' && !mod.photos.length ? 'receipts' : mod.photos.length ? 'photos' : mod.receipts.length ? 'receipts' : 'photos');
@@ -1065,6 +1066,14 @@ function renderCrumbs() {
   if (state.view.name === 'car') {
     const car = carById(state.view.carId);
     crumbs.innerHTML = `<button data-action="go-garage">Garage</button><span>›</span><span class="current">${esc(car?.name)}</span>`;
+  } else if (state.view.name.startsWith('admin')) {
+    const v = state.view;
+    const parts = [['go-garage', '', 'Garage'], ['admin', '', 'Admin']];
+    if (v.userId) parts.push(['admin-user', v.userId, adminUser(v.userId)?.email || 'User']);
+    if (v.carId) parts.push(['', '', adminGarage(v.userId)?.cars?.find((c) => c.id === v.carId)?.name || 'Car']);
+    crumbs.innerHTML = parts.map(([action, id, label], i) => (i === parts.length - 1
+      ? `<span class="current">${esc(label)}</span>`
+      : `<button data-action="${action}"${id ? ` data-id="${esc(id)}"` : ''}>${esc(label)}</button><span>›</span>`)).join('');
   } else {
     crumbs.innerHTML = '<span class="current">Garage</span>';
   }
@@ -1318,9 +1327,194 @@ function render() {
     renderModList(car);
     $('#mod-search').addEventListener('input', (e) => { state.modSearch = e.target.value; renderModList(car); });
     $('#mod-sort').addEventListener('change', (e) => { state.modSort = e.target.value; renderModList(car); });
+  } else if (state.view.name === 'admin') {
+    view.innerHTML = renderAdmin();
+  } else if (state.view.name === 'admin-user') {
+    view.innerHTML = renderAdminUser(state.view.userId);
+  } else if (state.view.name === 'admin-car') {
+    view.innerHTML = renderAdminCar(state.view.userId, state.view.carId);
   } else {
     view.innerHTML = renderGarage();
   }
+}
+
+// ======================================================================
+//  Admin dashboard — read-only. Only shown to accounts listed in the admins table
+//  (web/supabase/003-admin.sql); the database itself refuses everyone else.
+// ======================================================================
+
+const adminState = { users: null, usersError: '', loadingUsers: false, garages: new Map(), loadingGarage: new Set() };
+const adminUser = (id) => adminState.users?.find((u) => u.id === id);
+const adminGarage = (id) => adminState.garages.get(id);
+const fmtBytes = (n) => {
+  n = Number(n) || 0;
+  if (n >= 1e9) return (n / 1e9).toFixed(2) + ' GB';
+  if (n >= 1e6) return (n / 1e6).toFixed(1) + ' MB';
+  if (n >= 1e3) return Math.round(n / 1e3) + ' KB';
+  return n + ' B';
+};
+const fmtWhen = (iso) => (iso ? new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : 'never');
+const isAdminView = () => state.view.name.startsWith('admin');
+const loadingBlock = (text) => `<div class="view-inner"><div class="gallery-empty">${esc(text)}</div></div>`;
+
+async function adminLoadUsers() {
+  if (adminState.loadingUsers) return;
+  adminState.loadingUsers = true;
+  adminState.usersError = '';
+  try {
+    adminState.users = await window.api.admin.listUsers();
+  } catch (err) {
+    adminState.usersError = err.message;
+  }
+  adminState.loadingUsers = false;
+  if (isAdminView()) render();
+}
+
+async function adminLoadGarage(userId) {
+  if (adminState.loadingGarage.has(userId)) return;
+  adminState.loadingGarage.add(userId);
+  try {
+    adminState.garages.set(userId, await window.api.admin.garage(userId));
+  } catch (err) {
+    adminState.garages.set(userId, { error: err.message });
+  }
+  adminState.loadingGarage.delete(userId);
+  if (isAdminView()) render();
+}
+
+function renderAdmin() {
+  if (!adminState.users) {
+    if (adminState.usersError) {
+      return `<div class="view-inner"><div class="empty"><h2>Couldn’t load users</h2><div>${esc(adminState.usersError)}</div>
+        <button class="btn" data-action="admin-refresh">Try again</button></div></div>`;
+    }
+    adminLoadUsers();
+    return loadingBlock('Loading users…');
+  }
+  const users = adminState.users;
+  const sum = (k) => users.reduce((s, u) => s + (Number(u[k]) || 0), 0);
+  const me = window.api.account?.email;
+  return `
+    <div class="view-inner">
+      <div class="page-head">
+        <div><h1>Admin</h1><div class="sub">Registered users and their garages · read-only</div></div>
+        <div class="actions"><button class="btn" data-action="admin-refresh">Refresh</button></div>
+      </div>
+      <div class="garage-stats">
+        <div class="stat"><b>${users.length}</b><span>Users</span></div>
+        <div class="stat"><b>${sum('cars')}</b><span>Cars</span></div>
+        <div class="stat"><b>${sum('mods')}</b><span>Modifications</span></div>
+        <div class="stat"><b>${fmtBytes(sum('photo_bytes'))}</b><span>Photos · ${sum('photo_files')} files</span></div>
+      </div>
+      <div class="user-list">
+        ${users.map((u) => `
+        <div class="user-row" role="button" tabindex="0" data-action="admin-user" data-id="${esc(u.id)}">
+          <div class="avatar">${esc((u.email || '?')[0].toUpperCase())}</div>
+          <div style="min-width:0">
+            <h3>${esc(u.email || '(no email)')}${u.is_admin ? ' <span class="chip admin-chip">Admin</span>' : ''}${u.email === me ? ' <span class="muted">(you)</span>' : ''}</h3>
+            <div class="meta">Joined ${esc(fmtWhen(u.created_at))} · Last sign-in ${esc(fmtWhen(u.last_sign_in_at))}</div>
+          </div>
+          <div class="counts">
+            <span><b>${u.cars}</b> car${Number(u.cars) === 1 ? '' : 's'}</span>
+            <span><b>${u.mods}</b> mods</span>
+            <span><b>${fmtBytes(u.photo_bytes)}</b> photos</span>
+          </div>
+        </div>`).join('')}
+      </div>
+    </div>`;
+}
+
+function renderAdminUser(userId) {
+  const user = adminUser(userId);
+  if (!user) { state.view = { name: 'admin' }; return renderAdmin(); }
+  const db = adminGarage(userId);
+  if (!db) { adminLoadGarage(userId); return loadingBlock('Loading garage…'); }
+  if (db.error) return loadingBlock('Couldn’t load this garage: ' + db.error);
+  const cur = db.settings.currency;
+  return `
+    <div class="view-inner">
+      <div class="page-head">
+        <div><h1 style="word-break:break-all">${esc(user.email)}</h1>
+          <div class="sub">Joined ${esc(fmtWhen(user.created_at))} · Last sign-in ${esc(fmtWhen(user.last_sign_in_at))} · ${esc(cur)} · ${fmtBytes(user.photo_bytes)} of photos</div></div>
+      </div>
+      ${db.cars.length ? `
+      <div class="car-grid">
+        ${db.cars.map((car) => {
+          const cover = carCover(car);
+          return `
+          <div class="car-card" role="button" tabindex="0" data-action="admin-car" data-id="${car.id}">
+            <div class="cover">
+              ${cover ? `<img src="${imgSrc(cover)}" loading="lazy"${imgPos(cover)}>` : `<div class="ph">${ICON.car}</div>`}
+              <div class="overlay"><h3>${esc(car.name)}</h3><div class="meta">${esc(carSubtitle(car)) || '&nbsp;'}</div></div>
+            </div>
+            <div class="foot"><span>${car.mods.length} mod${car.mods.length === 1 ? '' : 's'}</span><b>${money(carTotal(car), cur)}</b></div>
+          </div>`;
+        }).join('')}
+      </div>` : '<div class="gallery-empty">This user hasn’t added any cars yet.</div>'}
+    </div>`;
+}
+
+function renderAdminCar(userId, carId) {
+  const db = adminGarage(userId);
+  const car = db?.cars?.find((c) => c.id === carId);
+  if (!car) { state.view = { name: 'admin-user', userId }; return renderAdminUser(userId); }
+  const cur = db.settings.currency;
+  const cover = carCover(car);
+  const mods = [...car.mods].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  const photos = car.mods.reduce((s, m) => s + m.photos.length, 0);
+  const receipts = car.mods.reduce((s, m) => s + m.receipts.length, 0);
+  return `
+    <div class="view-inner">
+      <section class="car-hero">
+        <div class="cover">${cover ? `<img src="${imgSrc(cover)}"${imgPos(cover)}>` : ICON.car}</div>
+        <div class="hero-body">
+          <div class="eyebrow">${esc(adminUser(userId)?.email || '')}</div>
+          <h1>${esc(car.name)}</h1>
+          ${carSubtitle(car) ? `<div class="sub">${esc(carSubtitle(car))}</div>` : ''}
+          ${car.notes ? `<p class="notes">${esc(car.notes)}</p>` : ''}
+          <div class="hero-stats">
+            <div><b>${money(carTotal(car), cur)}</b><span>Invested</span></div>
+            <div><b>${car.mods.length}</b><span>Mods</span></div>
+            <div><b>${photos}</b><span>Photos</span></div>
+            <div><b>${receipts}</b><span>Receipts</span></div>
+            ${car.plan.length ? `<div class="planned-stat"><b>${money(sumPrice(car.plan), cur)}</b><span>Planned · ${car.plan.length}</span></div>` : ''}
+          </div>
+        </div>
+      </section>
+      <h2 class="admin-h2">Modifications &amp; maintenance</h2>
+      ${mods.length ? `<div class="mod-list">${mods.map((m) => {
+        const thumb = m.photos[0] || m.receipts[0];
+        return `
+        <div class="mod-row" role="button" tabindex="0" data-action="admin-mod" data-id="${m.id}">
+          <div class="mod-thumb">${thumb ? `<img src="${imgSrc(thumb)}" loading="lazy"${imgPos(thumb)}>` : ICON.wrench}</div>
+          <div style="min-width:0">
+            <h3>${esc(m.title)}</h3>
+            <div class="meta">
+              ${m.category ? `<span class="chip" style="background:${catColor(m.category)}22;color:${catColor(m.category)}">${esc(m.category)}</span>` : ''}
+              ${m.date ? `<span>${ICON.calendar}${fmtDate(m.date)}</span>` : ''}
+              ${hasKm(m.mileage) ? `<span title="Mileage">${ICON.gauge}${fmtKm(m.mileage)}</span>` : ''}
+              <span title="Build photos">${ICON.camera}${m.photos.length}</span>
+              <span title="Receipts">${ICON.receipt}${m.receipts.length}</span>
+            </div>
+          </div>
+          <div class="right"><div class="price">${money(m.price, cur)}</div></div>
+        </div>`;
+      }).join('')}</div>` : '<div class="gallery-empty">No modifications yet.</div>'}
+      ${car.plan.length ? `
+      <h2 class="admin-h2">Plan</h2>
+      <div class="admin-plan">${car.plan.map((p) => `
+        <div><span>${esc(p.title)}${p.category ? ` <span class="muted">· ${esc(p.category)}</span>` : ''}</span>
+          <span class="muted">${esc(PRIORITIES[p.priority] || '')}</span><b>${money(p.price, cur)}</b></div>`).join('')}
+      </div>` : ''}
+    </div>`;
+}
+
+// Back one level (Android back button, Escape-free navigation).
+function goBack() {
+  const v = state.view;
+  if (v.name === 'admin-car') actions['admin-user'](v.userId);
+  else if (v.name === 'admin-user') actions.admin();
+  else actions['go-garage']();
 }
 
 // ======================================================================
@@ -1341,6 +1535,16 @@ async function adjustCarCover(car) {
 }
 
 const actions = {
+  admin: () => { if (!window.api.admin) return; state.view = { name: 'admin' }; render(); $('#view').scrollTop = 0; },
+  'admin-refresh': () => { adminState.users = null; adminState.usersError = ''; adminState.garages.clear(); render(); },
+  'admin-user': (id) => { state.view = { name: 'admin-user', userId: id }; render(); $('#view').scrollTop = 0; },
+  'admin-car': (id) => { state.view = { name: 'admin-car', userId: state.view.userId, carId: id }; render(); $('#view').scrollTop = 0; },
+  'admin-mod': (id) => {
+    const car = adminGarage(state.view.userId)?.cars.find((c) => c.id === state.view.carId);
+    const mod = car?.mods.find((m) => m.id === id);
+    if (mod) openModDetail(car, mod, 'photos', { readOnly: true });
+  },
+  'go-back': () => goBack(),
   'go-garage': () => { state.view = { name: 'garage' }; state.modSearch = ''; render(); $('#view').scrollTop = 0; },
   'open-car': (id) => { state.view = { name: 'car', carId: id }; state.modSearch = ''; state.carTab = 'mods'; state.modKind = 'mods'; render(); $('#view').scrollTop = 0; },
   'add-car': () => openCarForm(),
@@ -1404,6 +1608,10 @@ document.addEventListener('drop', (e) => e.preventDefault());
       m.photos ||= [];
       m.receipts ||= [];
     }
+  }
+  if (window.api.admin) {
+    $('.topbar-actions').insertAdjacentHTML('afterbegin',
+      `<button class="btn ghost admin-link" data-action="admin" title="Admin dashboard">${ICON.shield}<span>Admin</span></button>`);
   }
   render();
   checkLocalGarage();

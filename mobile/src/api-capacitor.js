@@ -163,8 +163,8 @@ App.addListener('backButton', () => {
   const hasOverlay = document.querySelector('.lightbox') || (typeof state !== 'undefined' && state.modals.length);
   if (hasOverlay) {
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-  } else if (typeof state !== 'undefined' && state.view?.name === 'car') {
-    actions['go-garage']();
+  } else if (typeof state !== 'undefined' && state.view?.name && state.view.name !== 'garage') {
+    actions['go-back']();
   } else {
     App.minimizeApp();
   }

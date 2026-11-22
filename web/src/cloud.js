@@ -179,6 +179,49 @@ async function cleanupOrphans(db) {
   for (let i = 0; i < stale.length; i += 100) check(await photos().remove(stale.slice(i, i + 100)));
 }
 
+async function fetchGarageRows(userId) {
+  const [carRows, modRows, planRows, settingsRow] = await Promise.all([
+    supabase.from('cars').select('*').eq('user_id', userId).order('created_at').then(check),
+    supabase.from('mods').select('*').eq('user_id', userId).order('created_at').then(check),
+    supabase.from('plan_items').select('*').eq('user_id', userId).order('created_at').then(check),
+    supabase.from('settings').select('*').eq('user_id', userId).maybeSingle().then(check),
+  ]);
+  return { carRows, modRows, planRows, settingsRow };
+}
+
+// ---------- admin (read-only view of every account; see supabase/003-admin.sql) ----------
+
+// false until 003-admin.sql has been run and this account is in the admins table.
+async function isAdmin() {
+  const { data, error } = await supabase.rpc('is_admin');
+  return !error && data === true;
+}
+
+const adminApi = {
+  // [{ id, email, created_at, last_sign_in_at, is_admin, cars, mods, plan_items, photo_files, photo_bytes }]
+  listUsers: async () => check(await supabase.rpc('admin_list_users')),
+
+  // Another user's garage in the app's own format. Every image gets `_src`, a signed link to
+  // that user's photo, so the normal image code can show it.
+  async garage(userId) {
+    const rows = await fetchGarageRows(userId);
+    const db = fromRows(rows.carRows, rows.modRows, rows.planRows, rows.settingsRow);
+    const names = [...referenced(db)].filter((n) => SAFE_NAME.test(n));
+    const signed = new Map();
+    for (let i = 0; i < names.length; i += 100) {
+      const chunk = names.slice(i, i + 100);
+      const data = check(await photos().createSignedUrls(chunk.map((n) => `${userId}/${n}`), SIGNED_URL_TTL));
+      data.forEach((d, j) => { if (d.signedUrl) signed.set(chunk[j], d.signedUrl); });
+    }
+    const attach = (img) => { if (img) img._src = signed.get(img.file) || BLANK; };
+    for (const c of db.cars) {
+      attach(c.cover);
+      for (const m of c.mods) { m.photos.forEach(attach); m.receipts.forEach(attach); }
+    }
+    return db;
+  },
+};
+
 // Builds the PDF report HTML for the chosen cars, with signed URLs for their photos.
 // Returns null when none of the cars exist anymore.
 export async function reportHtml({ carIds, includePhotos, includeReceipts }) {
@@ -208,13 +251,11 @@ export const cloudApi = {
       user = session?.user && !recoveryMode ? session.user : await showAuth(supabase, recoveryMode ? 'recovery' : 'signin');
       window.api.account = { email: user.email, signOut: () => supabase.auth.signOut() };
 
-      const [carRows, modRows, planRows, settingsRow] = await Promise.all([
-        supabase.from('cars').select('*').order('created_at').then(check),
-        supabase.from('mods').select('*').order('created_at').then(check),
-        supabase.from('plan_items').select('*').order('created_at').then(check),
-        supabase.from('settings').select('*').maybeSingle().then(check),
-      ]);
+      // Always ask for this user's rows only: admins are allowed to read everyone's (see
+      // supabase/003-admin.sql), and those must never end up in — or be saved into — this garage.
+      const { carRows, modRows, planRows, settingsRow } = await fetchGarageRows(user.id);
       const db = fromRows(carRows, modRows, planRows, settingsRow);
+      window.api.admin = (await isAdmin()) ? adminApi : null;
       snapshot = toRows(db);
       await signUrls(referenced(db));
       cleanupOrphans(db).catch((err) => console.warn('Photo cleanup skipped', err));
