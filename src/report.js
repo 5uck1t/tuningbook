@@ -51,7 +51,7 @@ function buildReportHtml({ cars, currency, includePhotos, includeReceipts, imgUr
     return `
     <section class="car">
       <header class="car-head">
-        ${cover ? `<img class="car-cover" src="${esc(src(cover))}">` : ''}
+        ${cover ? `<img class="car-cover" src="${esc(src(cover))}"${cover.pos ? ` style="object-position:${Number(cover.pos.x) || 0}% ${Number(cover.pos.y) || 0}%"` : ''}>` : ''}
         <div class="car-meta">
           <div class="eyebrow">Build sheet</div>
           <h1>${esc(car.name)}</h1>

@@ -4,3 +4,5 @@
 export const SUPABASE_URL = 'https://qhueonyyrfabbtbotrqm.supabase.co';
 export const SUPABASE_KEY = 'sb_publishable_IweLaQGT3A0fHZobSacCEg_nQ2QKl6o';
 export const PHOTO_BUCKET = 'photos';
+// The public website (GitHub Pages) — where links in sign-up / reset emails lead.
+export const SITE_URL = 'https://5uck1t.github.io/tuningbook/';

@@ -1,26 +1,30 @@
 {
   "name": "tuningbook",
   "productName": "TuningBook",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Track your car modifications, costs, build photos and receipts.",
   "author": "TuningBook",
   "main": "src/main.js",
   "scripts": {
-    "start": "electron .",
-    "dist": "electron-builder --win nsis"
+    "build:www": "node scripts/build-desktop.mjs",
+    "start": "npm run build:www && electron .",
+    "dist": "npm run build:www && electron-builder --win nsis"
   },
   "license": "ISC",
   "type": "commonjs",
   "devDependencies": {
     "electron": "^45.4.1",
     "electron-builder": "^26.18.0",
+    "esbuild": "^0.28.2",
     "jszip": "^3.10.2"
   },
   "build": {
     "appId": "com.tuningbook.app",
     "productName": "TuningBook",
     "files": [
-      "src/**/*",
+      "src/main.js",
+      "src/preload.js",
+      "src/www/**/*",
       "package.json"
     ],
     "directories": {

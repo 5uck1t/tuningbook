@@ -3,13 +3,19 @@
 Track car modifications: costs, mileage, build photos and receipts — with PDF export.
 One shared UI (`src/renderer/`) runs in three places:
 
-| Version | Where data lives | Folder |
-|---|---|---|
-| **Website** (GitHub Pages) | Online in Supabase — same garage on every device you sign in on | `web/` |
-| **Windows desktop app** (Electron) | Locally in `%APPDATA%\TuningBook\library` | `src/` |
-| **Android app** (Capacitor) | Locally on the phone | `mobile/` |
+| Version | Folder |
+|---|---|
+| **Website** (GitHub Pages) | `web/` |
+| **Windows desktop app** (Electron) | `src/` |
+| **Android app** (Capacitor) | `mobile/` |
 
-Move a garage between versions with **Export garage** / **Load garage** (one `.zip` file).
+All three sign in to the same Supabase account and show the same garage — the data lives online.
+The Supabase code is shared: [`web/src/cloud.js`](web/src/cloud.js). Each version adds only its own
+extras on top (`web/src/api-web.js`, `src/desktop/api-desktop.js`, `mobile/src/api-capacitor.js`).
+
+Older desktop/Android versions kept the garage on the device. After signing in, the apps offer to
+upload that local garage once (also available in Settings while it exists).
+**Export garage** / **Load garage** still make / restore a single `.zip` backup.
 
 ## Features
 
@@ -44,12 +50,14 @@ The project URL and publishable key are in `web/src/config.js` (both public by d
 
 ```powershell
 npm install
-npm start          # run
-npm run dist       # build dist\TuningBook Setup 1.0.0.exe
+cd web; npm install; cd ..   # the desktop build bundles the shared Supabase code from web/
+npm start          # build src\www and run
+npm run dist       # build dist\TuningBook Setup <version>.exe
 ```
 
-Data: `%APPDATA%\TuningBook\library` — `data.json`, `images\` (originals + `*.p.jpg` previews) and
-`backups\` (automatic daily copy, last 30 days). Only one window can run at a time.
+`scripts/build-desktop.mjs` assembles `src/www` (the shared UI + `api-desktop.js`, with a
+Content-Security-Policy that allows Supabase). `src/main.js` only does native things: save dialogs,
+PDF files, opening links, and reading the old local garage in `%APPDATA%\TuningBook\library`.
 
 ## Android app
 

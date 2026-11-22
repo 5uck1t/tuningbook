@@ -229,6 +229,36 @@ textarea { resize: vertical; min-height: 80px; }
   opacity: 0; transition: opacity .15s;
 }
 .thumb:hover .x { opacity: 1; }
+.thumb .pos {
+  position: absolute; top: 4px; left: 4px; width: 22px; height: 22px; border-radius: 50%;
+  background: rgba(0,0,0,.7); border: 0; color: #fff; display: grid; place-items: center; padding: 0;
+  opacity: 0; transition: opacity .15s;
+}
+.thumb:hover .pos { opacity: 1; }
+.thumb .pos:hover { background: var(--accent); }
+
+/* "Adjust preview" editor */
+.pos-frame {
+  position: relative; overflow: hidden; border-radius: 10px; background: var(--panel-2);
+  cursor: grab; touch-action: none; user-select: none; outline: 1px solid var(--line);
+}
+.pos-frame.dragging { cursor: grabbing; }
+.pos-frame img { width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; }
+.pos-frame.wide { aspect-ratio: 16 / 10; }
+.pos-frame.square { aspect-ratio: 1; width: 84px; }
+.pos-frame.photo { aspect-ratio: 4 / 3; width: 112px; }
+.pos-previews { display: flex; gap: 14px; margin-top: 12px; align-items: flex-end; }
+.pos-previews > div { display: flex; flex-direction: column; gap: 4px; }
+.pos-previews span { font-size: 12px; color: var(--muted); }
+
+.car-hero .cover { position: relative; }
+.cover-adjust {
+  position: absolute; right: 8px; bottom: 8px; display: flex; align-items: center; gap: 6px;
+  padding: 5px 10px; border-radius: 999px; border: 0; background: rgba(0,0,0,.65); color: #fff;
+  font-size: 12px; font-weight: 600; opacity: 0; transition: opacity .15s;
+}
+.car-hero .cover:hover .cover-adjust, .cover-adjust:focus-visible { opacity: 1; }
+.cover-adjust:hover { background: var(--accent); }
 .thumb .x:hover { background: var(--danger); }
 .add-thumb {
   aspect-ratio: 1; border-radius: 8px; border: 1px solid var(--line); background: var(--bg);
@@ -305,6 +335,18 @@ textarea { resize: vertical; min-height: 80px; }
 .seg button { border: 0; background: transparent; color: var(--muted); padding: 7px 14px; border-radius: 7px; font-weight: 600; }
 .seg button span { font-size: 12px; opacity: .7; margin-left: 4px; }
 .seg button.active { background: var(--panel-2); color: var(--text); box-shadow: inset 0 -2px 0 var(--accent); }
+
+/* Modifications / Maintenance sub-tabs */
+.subtabs { display: flex; gap: 8px; margin: 0 0 12px; flex-wrap: wrap; }
+.subtabs button {
+  display: inline-flex; align-items: center; gap: 7px; padding: 6px 12px; border-radius: 999px;
+  border: 1px solid var(--line); background: transparent; color: var(--muted); font-weight: 600; font-size: 13px;
+}
+.subtabs button svg { width: 15px; height: 15px; }
+.subtabs button span { font-weight: 500; font-size: 12px; opacity: .75; }
+.subtabs button:hover { color: var(--text); border-color: #3a4150; }
+.subtabs button.active { color: var(--text); border-color: var(--accent); background: rgba(255, 90, 54, .1); }
+.subtabs button.active svg { color: var(--accent); }
 .plan-note { font-size: 12.5px; }
 .plan-row { grid-template-columns: 4px 1fr auto; padding-left: 0; overflow: hidden; }
 .prio-bar { align-self: stretch; border-radius: 0 3px 3px 0; margin: -10px 0; }
@@ -330,7 +372,7 @@ textarea { resize: vertical; min-height: 80px; }
 @media (hover: none) {
   .car-card .card-menu, .mod-row .row-actions { display: none; }
   .car-card:hover { transform: none; box-shadow: none; }
-  .thumb .x { opacity: 1; }
+  .thumb .x, .thumb .pos, .cover-adjust { opacity: 1; }
 }
 
 /* Phones */

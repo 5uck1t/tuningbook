@@ -28,6 +28,8 @@ const ICON = {
   download: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5M12 15V3"/></svg>',
   search: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>',
   close: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>',
+  oil: '<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3s-6 6.6-6 11a6 6 0 0 0 12 0c0-4.4-6-11-6-11z"/><path d="M9.5 15a2.5 2.5 0 0 0 2.5 2.5"/></svg>',
+  move: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M2 12h20M12 2 9 5M12 2l3 3M12 22l-3-3M12 22l3-3M2 12l3-3M2 12l3 3M22 12l-3-3M22 12l-3 3"/></svg>',
 };
 
 const IS_ANDROID = window.api.platform === 'android';
@@ -39,7 +41,9 @@ const state = {
   modSearch: '',
   modSort: 'date-desc',
   carTab: 'mods',
+  modKind: 'mods', // sub-tab inside Modifications: 'mods' or 'maint'
   modals: [],
+  localCars: 0, // cars in a garage saved on this device before the app went online
 };
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -81,6 +85,11 @@ const imgSrc = (img, full = false) => {
   return window.api.imageSrc ? window.api.imageSrc(name) : state.imagesUrl + encodeURIComponent(name);
 };
 
+// Which part of a photo stays visible when it's cropped into a cover/thumbnail (set with
+// "Adjust preview"). Stored on the image as { x, y } in percent; 50/50 = centered.
+const clampPct = (v) => Math.min(100, Math.max(0, Math.round(Number(v) || 0)));
+const imgPos = (img) => (img?.pos ? ` style="object-position:${clampPct(img.pos.x)}% ${clampPct(img.pos.y)}%"` : '');
+
 const catColor = (cat) => {
   const i = CATEGORIES.indexOf(cat);
   if (i >= 0) return PALETTE[i % PALETTE.length];
@@ -88,6 +97,11 @@ const catColor = (cat) => {
   for (const ch of String(cat)) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
   return PALETTE[h % PALETTE.length];
 };
+
+// Entries tagged "Maintenance" are listed in their own sub-tab, apart from the modifications.
+const isMaint = (m) => (m.category || '').trim().toLowerCase() === 'maintenance';
+const kindOf = (m) => (isMaint(m) ? 'maint' : 'mods');
+const sumPrice = (list) => list.reduce((s, m) => s + (Number(m.price) || 0), 0);
 
 const carById = (id) => state.db.cars.find((c) => c.id === id);
 const carTotal = (car) => car.mods.reduce((s, m) => s + (Number(m.price) || 0), 0);
@@ -243,6 +257,68 @@ function confirmDialog({ title, message, confirmLabel = 'Delete', danger = true 
   });
 }
 
+// Lets the user drag a photo inside a cover-shaped frame to choose which part shows in previews.
+// Resolves with the new { x, y } (percent), or null if cancelled.
+function editImagePosition(img) {
+  return new Promise((resolve) => {
+    let pos = { x: img.pos ? clampPct(img.pos.x) : 50, y: img.pos ? clampPct(img.pos.y) : 50 };
+    let saved = false;
+    const src = imgSrc(img);
+    const m = openModal(`
+      ${modalHead('Adjust preview')}
+      <div class="modal-body">
+        <p class="muted" style="margin:0 0 12px">Drag the photo to choose which part shows on cards and thumbnails.</p>
+        <div class="pos-frame wide"><img src="${src}" draggable="false" alt=""></div>
+        <div class="pos-previews">
+          <div><div class="pos-frame square"><img src="${src}" draggable="false" alt=""></div><span>Thumbnail</span></div>
+          <div><div class="pos-frame photo"><img src="${src}" draggable="false" alt=""></div><span>Gallery</span></div>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn ghost" data-center>Center</button>
+        <span class="spacer"></span>
+        <button class="btn" data-close>Cancel</button>
+        <button class="btn primary" data-ok>Save</button>
+      </div>`, {
+      className: 'small',
+      dismissable: true,
+      onClose: () => { if (!saved) resolve(null); },
+    });
+    const imgs = $$('.pos-frame img', m.el);
+    const paint = () => imgs.forEach((el) => { el.style.objectPosition = `${pos.x}% ${pos.y}%`; });
+    paint();
+
+    // Dragging right moves the photo right, i.e. shows more of its left side (x goes down).
+    // 100% of x = the full amount the scaled photo overflows the frame, so the photo follows the finger.
+    $$('.pos-frame', m.el).forEach((frame) => {
+      const el = frame.querySelector('img');
+      let start = null;
+      frame.addEventListener('pointerdown', (e) => {
+        if (!el.naturalWidth) return;
+        const fw = frame.clientWidth, fh = frame.clientHeight;
+        const scale = Math.max(fw / el.naturalWidth, fh / el.naturalHeight);
+        start = {
+          px: e.clientX, py: e.clientY, x: pos.x, y: pos.y,
+          ox: el.naturalWidth * scale - fw, oy: el.naturalHeight * scale - fh,
+        };
+        frame.setPointerCapture(e.pointerId);
+        frame.classList.add('dragging');
+      });
+      frame.addEventListener('pointermove', (e) => {
+        if (!start) return;
+        if (start.ox > 1) pos.x = clampPct(start.x - ((e.clientX - start.px) / start.ox) * 100);
+        if (start.oy > 1) pos.y = clampPct(start.y - ((e.clientY - start.py) / start.oy) * 100);
+        paint();
+      });
+      const end = () => { start = null; frame.classList.remove('dragging'); };
+      frame.addEventListener('pointerup', end);
+      frame.addEventListener('pointercancel', end);
+    });
+    $('[data-center]', m.el).addEventListener('click', () => { pos = { x: 50, y: 50 }; paint(); });
+    $('[data-ok]', m.el).addEventListener('click', () => { saved = true; m.close(); resolve(pos); });
+  });
+}
+
 // Reusable image picker area (thumbnails + add button + drag & drop) used in forms.
 function mountImagePicker(container, list, { title, single = false, kind = 'photo' } = {}) {
   const render = () => {
@@ -250,7 +326,8 @@ function mountImagePicker(container, list, { title, single = false, kind = 'phot
       <div class="thumbs">
         ${list.map((img, i) => `
           <div class="thumb" title="${esc(img.name || '')}">
-            <img src="${imgSrc(img)}" loading="lazy">
+            <img src="${imgSrc(img)}" loading="lazy"${imgPos(img)}>
+            <button type="button" class="pos" data-pos="${i}" title="Adjust preview position">${ICON.move}</button>
             <button type="button" class="x" data-remove="${i}" title="Remove">×</button>
           </div>`).join('')}
         ${single && list.length ? '' : `<button type="button" class="add-thumb" data-add><b>+</b>${single ? 'Choose' : 'Add'}</button>`}
@@ -268,6 +345,12 @@ function mountImagePicker(container, list, { title, single = false, kind = 'phot
   container.addEventListener('click', (e) => {
     const rm = e.target.closest('[data-remove]');
     if (rm) { list.splice(Number(rm.dataset.remove), 1); render(); return; }
+    const pb = e.target.closest('[data-pos]');
+    if (pb) {
+      const i = Number(pb.dataset.pos);
+      editImagePosition(list[i]).then((pos) => { if (pos) { list[i] = { ...list[i], pos }; render(); } });
+      return;
+    }
     if (e.target.closest('[data-add]')) add(null);
   });
   container.addEventListener('dragover', (e) => { e.preventDefault(); container.classList.add('over'); });
@@ -427,6 +510,8 @@ function openModForm(car, mod, { prefill, onSaved, heading } = {}) {
     };
     if (editing) Object.assign(mod, data);
     else car.mods.push({ id: uid(), createdAt: new Date().toISOString(), ...data });
+    const movedTab = kindOf(data) !== state.modKind;
+    state.modKind = kindOf(data);
     onSaved?.();
     await persist();
     m.close();
@@ -436,7 +521,8 @@ function openModForm(car, mod, { prefill, onSaved, heading } = {}) {
       state.modals.forEach((x) => x.close());
       openModDetail(car, mod);
     }
-    toast(editing ? 'Modification updated' : 'Modification added');
+    if (isMaint(data)) toast(editing ? (movedTab ? 'Moved to Maintenance' : 'Maintenance updated') : 'Added to Maintenance');
+    else toast(editing ? (movedTab ? 'Moved to Modifications' : 'Modification updated') : 'Modification added');
   });
 }
 
@@ -473,7 +559,7 @@ function openModDetail(car, mod, tab = 'photos') {
     const list = name === 'photos' ? mod.photos : mod.receipts;
     $$('.tabs button', m.el).forEach((b) => b.classList.toggle('active', b.dataset.tab === name));
     $('#tab-body', m.el).innerHTML = list.length
-      ? `<div class="gallery">${list.map((img, i) => `<button data-open="${i}"><img src="${imgSrc(img)}" loading="lazy"></button>`).join('')}</div>`
+      ? `<div class="gallery">${list.map((img, i) => `<button data-open="${i}"><img src="${imgSrc(img)}" loading="lazy"${imgPos(img)}></button>`).join('')}</div>`
       : `<div class="gallery-empty">No ${name === 'photos' ? 'build photos' : 'receipts'} yet.</div>`;
     $('#tab-body', m.el).onclick = (e) => {
       const b = e.target.closest('[data-open]');
@@ -734,18 +820,29 @@ async function importBackup() {
     return;
   }
 
-  const incoming = backup.db.cars;
+  await mergeGarage(backup.db.cars, async (name) => zip.file('images/' + name)?.async('uint8array'), {
+    title: 'Load garage?',
+    intro: `This garage file from ${esc(fmtDate((backup.exportedAt || '').slice(0, 10)))} contains:`,
+    from: 'the file',
+    confirmLabel: 'Load',
+  });
+}
+
+// Adds cars (with their images) to the garage: cars with the same id are replaced, others added.
+// `getImage(name)` returns the image's bytes, or nothing if it's missing. Resolves true when done.
+async function mergeGarage(incoming, getImage, { title, intro, from, confirmLabel, useOriginals = false }) {
+  const here = window.api.account ? 'in your online garage' : 'on this device';
   const existingIds = new Set(state.db.cars.map((c) => c.id));
   const updated = incoming.filter((c) => existingIds.has(c.id));
-  const list = incoming.map((c) => `<li><b>${esc(c.name)}</b> — ${(c.mods || []).length} mods${existingIds.has(c.id) ? ' <span class="muted">(replaces the one on this device)</span>' : ' <span class="muted">(new)</span>'}</li>`).join('');
+  const list = incoming.map((c) => `<li><b>${esc(c.name)}</b> — ${(c.mods || []).length} mods${existingIds.has(c.id) ? ` <span class="muted">(replaces the one ${here})</span>` : ' <span class="muted">(new)</span>'}</li>`).join('');
   const ok = await confirmDialog({
-    title: 'Load garage?',
-    message: `This garage file from ${esc(fmtDate((backup.exportedAt || '').slice(0, 10)))} contains:<ul style="padding-left:18px">${list}</ul>
-      ${updated.length ? 'Cars marked “replaces” will be overwritten with the version from the file. ' : ''}Other cars on this device stay as they are.`,
-    confirmLabel: 'Load',
+    title,
+    message: `${intro}<ul style="padding-left:18px">${list}</ul>
+      ${updated.length ? `Cars marked “replaces” will be overwritten with the version from ${from}. ` : ''}Other cars ${here} stay as they are.`,
+    confirmLabel,
     danger: updated.length > 0,
   });
-  if (!ok) return;
+  if (!ok) return false;
 
   try {
     for (const car of incoming) {
@@ -757,12 +854,13 @@ async function importBackup() {
     const receiptNames = new Set();
     for (const car of incoming) for (const m of car.mods) for (const r of m.receipts) { receiptNames.add(r.file); if (r.preview) receiptNames.add(r.preview); }
 
-    // Platforms that store only compact images (the web version) keep just one file per photo:
+    // Platforms that store only compact images (the online garage) keep just one file per photo:
     // the existing preview when there is one, otherwise the original (compressed on upload).
+    // With `useOriginals` (the originals are right here on disk) the better-quality original is used.
     if (window.api.compactImages) {
       const compact = (img) => {
         if (!img) return img;
-        if (img.preview && !receiptNames.has(img.file)) return { ...img, file: img.preview, preview: null };
+        if (img.preview && !useOriginals && !receiptNames.has(img.file)) return { ...img, file: img.preview, preview: null };
         return { ...img, preview: null };
       };
       for (const car of incoming) {
@@ -776,10 +874,10 @@ async function importBackup() {
     let done = 0;
     for (const name of names) {
       if (!BACKUP_IMAGE_NAME.test(name)) continue;
-      const entry = zip.file('images/' + name);
-      if (!entry) continue;
       toast(`Importing images… ${++done}/${names.length}`, 0);
-      await window.api.writeImage(name, await entry.async('uint8array'), receiptNames.has(name) ? 'receipt' : 'photo');
+      const bytes = await getImage(name);
+      if (!bytes) continue;
+      await window.api.writeImage(name, bytes, receiptNames.has(name) ? 'receipt' : 'photo');
     }
     for (const car of incoming) {
       const i = state.db.cars.findIndex((c) => c.id === car.id);
@@ -789,8 +887,64 @@ async function importBackup() {
     state.view = { name: 'garage' };
     render();
     toast(`Loaded ${incoming.length} car${incoming.length === 1 ? '' : 's'}`, 4000);
+    return true;
   } catch (err) {
     toast('Load failed: ' + err.message, 6000);
+    return false;
+  }
+}
+
+// ---------- garage saved on this device before the app went online ----------
+
+// Desktop and Android used to keep the garage on the device. After signing in, that copy is
+// offered for upload once (and stays available in Settings until it's uploaded or deleted).
+const LOCAL_OFFER_KEY = 'tb-local-garage-offered';
+
+async function checkLocalGarage() {
+  if (!window.api.localGarage) return;
+  try {
+    const local = await window.api.localGarage.read();
+    state.localCars = local?.cars?.length || 0;
+  } catch {
+    state.localCars = 0;
+  }
+  if (!state.localCars) return;
+  let offered = false;
+  try { offered = localStorage.getItem(LOCAL_OFFER_KEY) === '1'; } catch { /* storage unavailable */ }
+  if (offered) return;
+  try { localStorage.setItem(LOCAL_OFFER_KEY, '1'); } catch { /* storage unavailable */ }
+  uploadLocalGarage();
+}
+
+async function uploadLocalGarage() {
+  let local;
+  try {
+    local = await window.api.localGarage.read();
+  } catch (err) {
+    toast('Could not read the garage on this device: ' + err.message, 6000);
+    return;
+  }
+  if (!local?.cars?.length) { state.localCars = 0; toast('No garage saved on this device'); return; }
+  const done = await mergeGarage(structuredClone(local.cars), (name) => window.api.localGarage.readImage(name), {
+    title: 'Upload the garage from this device?',
+    intro: 'TuningBook now keeps your garage online. This device still has the garage it saved before you signed in:',
+    from: 'this device',
+    confirmLabel: 'Upload',
+    useOriginals: true,
+  });
+  if (!done || !window.api.localGarage.remove) return;
+  const del = await confirmDialog({
+    title: 'Delete the copy on this device?',
+    message: 'Your garage is uploaded. The old copy saved on this device (with all its photos) is no longer used — delete it to free up space? This can’t be undone.',
+    confirmLabel: 'Delete local copy',
+  });
+  if (!del) return;
+  try {
+    await window.api.localGarage.remove();
+    state.localCars = 0;
+    toast('Local copy deleted');
+  } catch (err) {
+    toast('Could not delete the local copy: ' + err.message, 6000);
   }
 }
 
@@ -813,6 +967,13 @@ function openSettings() {
           ${window.api.openDataFolder ? '<button class="btn ghost" data-folder>Open data folder</button>' : ''}
         </div>
       </div>
+      ${state.localCars ? `
+      <div class="field">
+        <label>Garage saved on this device</label>
+        <div class="muted" style="margin-bottom:8px">This device still has the garage it saved before you signed in
+          (${state.localCars} car${state.localCars === 1 ? '' : 's'}). Upload it to add it to your online garage.</div>
+        <div><button class="btn" data-local-upload>${ICON.upload} Upload to online garage</button></div>
+      </div>` : ''}
       ${window.api.account ? `
       <div class="field">
         <label>Account</label>
@@ -826,6 +987,7 @@ function openSettings() {
     </div>`, { className: 'small', dismissable: true });
 
   $('[data-folder]', m.el)?.addEventListener('click', () => window.api.openDataFolder());
+  $('[data-local-upload]', m.el)?.addEventListener('click', () => { m.close(); uploadLocalGarage(); });
   $('[data-signout]', m.el)?.addEventListener('click', () => window.api.account.signOut());
   $('[data-backup-export]', m.el).addEventListener('click', () => exportBackup());
   $('[data-backup-import]', m.el).addEventListener('click', () => { m.close(); importBackup(); });
@@ -894,7 +1056,7 @@ function renderGarage() {
           return `
           <div class="car-card" role="button" tabindex="0" data-action="open-car" data-id="${car.id}">
             <div class="cover">
-              ${cover ? `<img src="${imgSrc(cover)}" loading="lazy">` : `<div class="ph">${ICON.car}</div>`}
+              ${cover ? `<img src="${imgSrc(cover)}" loading="lazy"${imgPos(cover)}>` : `<div class="ph">${ICON.car}</div>`}
               <div class="overlay">
                 <h3>${esc(car.name)}</h3>
                 <div class="meta">${esc(carSubtitle(car)) || '&nbsp;'}</div>
@@ -931,7 +1093,8 @@ function renderCar(car) {
   return `
     <div class="view-inner">
       <section class="car-hero">
-        <div class="cover">${cover ? `<img src="${imgSrc(cover)}">` : ICON.car}</div>
+        <div class="cover">${cover ? `<img src="${imgSrc(cover)}"${imgPos(cover)}>
+          <button class="cover-adjust" data-action="adjust-cover" data-id="${car.id}" title="Adjust preview position">${ICON.move}<span>Adjust</span></button>` : ICON.car}</div>
         <div class="hero-body">
           <div class="eyebrow">Build</div>
           <h1>${esc(car.name)}</h1>
@@ -948,7 +1111,7 @@ function renderCar(car) {
             <div class="breakdown">${cats.map(([k, v]) => `<i style="width:${(v / total) * 100}%;background:${catColor(k)}" title="${esc(k)}: ${esc(money(v))}"></i>`).join('')}</div>
             <div class="legend">${cats.map(([k, v]) => `<span><i style="background:${catColor(k)}"></i>${esc(k)} · ${money(v)}</span>`).join('')}</div>` : ''}
           <div class="actions" style="padding-top:16px">
-            <button class="btn primary" data-action="add-mod">${ICON.plus} Add modification</button>
+            <button class="btn primary" data-action="add-mod">${ICON.plus} ${state.modKind === 'maint' ? 'Add maintenance' : 'Add modification'}</button>
             <button class="btn" data-action="export-car">${ICON.pdf} Export PDF</button>
             <button class="btn ghost" data-action="edit-car" data-id="${car.id}">${ICON.edit} Edit car</button>
             <button class="btn ghost danger" data-action="delete-car" data-id="${car.id}">${ICON.trash} Delete</button>
@@ -971,6 +1134,15 @@ function renderCar(car) {
             .map(([v, l]) => `<option value="${v}" ${state.modSort === v ? 'selected' : ''}>${l}</option>`).join('')}
         </select>`}
       </div>
+      ${state.carTab === 'mods' ? (() => {
+        const maint = car.mods.filter(isMaint);
+        const mods = car.mods.filter((m) => !isMaint(m));
+        return `
+      <div class="subtabs">
+        <button data-action="mod-kind" data-id="mods" class="${state.modKind === 'mods' ? 'active' : ''}">${ICON.wrench}Modifications <span>${mods.length} · ${money(sumPrice(mods))}</span></button>
+        <button data-action="mod-kind" data-id="maint" class="${state.modKind === 'maint' ? 'active' : ''}">${ICON.oil}Maintenance <span>${maint.length} · ${money(sumPrice(maint))}</span></button>
+      </div>`;
+      })() : ''}
       <div id="mod-list"></div>
     </div>`;
 }
@@ -978,8 +1150,16 @@ function renderCar(car) {
 function renderModList(car) {
   const list = $('#mod-list');
   if (!list) return;
-  if (!car.mods.length) {
-    list.innerHTML = `
+  const maintTab = state.modKind === 'maint';
+  const inTab = car.mods.filter((m) => kindOf(m) === state.modKind);
+  if (!inTab.length) {
+    list.innerHTML = maintTab ? `
+      <div class="empty">
+        <div style="color:var(--accent)">${ICON.oil}</div>
+        <h2>No maintenance yet</h2>
+        <div>Oil changes, brakes, tyres, servicing — anything with the category <b>Maintenance</b> is listed here.</div>
+        <button class="btn primary" data-action="add-mod">${ICON.plus} Add maintenance</button>
+      </div>` : `
       <div class="empty">
         <div style="color:var(--accent)">${ICON.wrench}</div>
         <h2>No modifications yet</h2>
@@ -989,7 +1169,7 @@ function renderModList(car) {
     return;
   }
   const q = state.modSearch.trim().toLowerCase();
-  let mods = car.mods.filter((m) =>
+  let mods = inTab.filter((m) =>
     !q || [m.title, m.category, m.description].some((v) => (v || '').toLowerCase().includes(q)));
   const sorters = {
     'date-desc': (a, b) => (b.date || '').localeCompare(a.date || ''),
@@ -1005,7 +1185,7 @@ function renderModList(car) {
         const thumb = m.photos[0] || m.receipts[0];
         return `
         <div class="mod-row" role="button" tabindex="0" data-action="open-mod" data-id="${m.id}">
-          <div class="mod-thumb">${thumb ? `<img src="${imgSrc(thumb)}" loading="lazy">` : ICON.wrench}</div>
+          <div class="mod-thumb">${thumb ? `<img src="${imgSrc(thumb)}" loading="lazy"${imgPos(thumb)}>` : ICON.wrench}</div>
           <div style="min-width:0">
             <h3>${esc(m.title)}</h3>
             <div class="meta">
@@ -1025,7 +1205,7 @@ function renderModList(car) {
           </div>
         </div>`;
       }).join('')}</div>`
-    : '<div class="gallery-empty">No modifications match your search.</div>';
+    : `<div class="gallery-empty">No ${maintTab ? 'maintenance entries' : 'modifications'} match your search.</div>`;
 }
 
 function renderPlanList(car) {
@@ -1090,17 +1270,33 @@ function render() {
 //  Global events
 // ======================================================================
 
+// The car page's "Adjust" button: reposition whichever photo is the car's cover — its own cover
+// photo, or (when it has none) the first photo of the latest modification.
+async function adjustCarCover(car) {
+  const cover = carCover(car);
+  if (!cover) return;
+  const pos = await editImagePosition(cover);
+  if (!pos) return;
+  if (car.cover === cover) car.cover = { ...cover, pos };
+  else for (const m of car.mods) { const i = m.photos.indexOf(cover); if (i >= 0) { m.photos[i] = { ...cover, pos }; break; } }
+  await persist();
+  render();
+}
+
 const actions = {
   'go-garage': () => { state.view = { name: 'garage' }; state.modSearch = ''; render(); $('#view').scrollTop = 0; },
-  'open-car': (id) => { state.view = { name: 'car', carId: id }; state.modSearch = ''; state.carTab = 'mods'; render(); $('#view').scrollTop = 0; },
+  'open-car': (id) => { state.view = { name: 'car', carId: id }; state.modSearch = ''; state.carTab = 'mods'; state.modKind = 'mods'; render(); $('#view').scrollTop = 0; },
   'add-car': () => openCarForm(),
   'edit-car': (id) => openCarForm(carById(id)),
+  'adjust-cover': (id) => adjustCarCover(carById(id)),
   'delete-car': (id) => deleteCar(carById(id)),
   'export-all': () => openExport(state.db.cars.map((c) => c.id)),
   'export-garage': () => exportBackup(),
   'load-garage': () => importBackup(),
   'export-car': () => openExport([state.view.carId]),
-  'add-mod': () => openModForm(carById(state.view.carId)),
+  'add-mod': () => openModForm(carById(state.view.carId), null,
+    state.modKind === 'maint' ? { prefill: { category: 'Maintenance' }, heading: 'New maintenance' } : {}),
+  'mod-kind': (kind) => { state.modKind = kind; render(); },
   'open-mod': (id) => { const car = carById(state.view.carId); openModDetail(car, car.mods.find((m) => m.id === id)); },
   'edit-mod': (id) => { const car = carById(state.view.carId); openModForm(car, car.mods.find((m) => m.id === id)); },
   'delete-mod': (id) => { const car = carById(state.view.carId); deleteMod(car, car.mods.find((m) => m.id === id)); },
@@ -1153,4 +1349,5 @@ document.addEventListener('drop', (e) => e.preventDefault());
     }
   }
   render();
+  checkLocalGarage();
 })();

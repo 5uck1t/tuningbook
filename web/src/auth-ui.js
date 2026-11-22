@@ -1,8 +1,13 @@
 // Login / sign-up / password-reset screen shown before the garage loads.
 
+import { SITE_URL } from './config.js';
+
 const LOGO = '<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="2.5"/><path d="M12 3v6.5M4.2 16.5l5.6-3.2M19.8 16.5l-5.6-3.2"/></svg>';
 
-const redirectUrl = () => location.origin + location.pathname;
+// Links in confirmation / password-reset emails open the website. The desktop and Android apps
+// have no web address of their own (file:// and https://localhost), so they use the site's.
+const redirectUrl = () =>
+  location.protocol === 'https:' && location.hostname !== 'localhost' ? location.origin + location.pathname : SITE_URL;
 
 /**
  * Shows the auth screen and resolves with the signed-in user.
