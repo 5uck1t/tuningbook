@@ -292,6 +292,7 @@ textarea { resize: vertical; min-height: 80px; }
 }
 .modal {
   width: min(640px, 100%); max-height: calc(100vh - 60px);
+  min-width: 0; max-width: 100%; /* never wider than the screen, whatever is inside */
   background: var(--panel); border: 1px solid var(--line); border-radius: 16px;
   box-shadow: var(--shadow); display: flex; flex-direction: column;
   animation: pop .18s ease-out;
@@ -429,7 +430,10 @@ textarea { resize: vertical; min-height: 80px; }
 .card-designer { display: grid; grid-template-columns: 280px 1fr; gap: 22px; align-items: start; }
 .cd-preview { width: 100%; }
 .cd-controls { min-width: 0; }
-.cd-photos { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 6px; margin-bottom: 10px; }
+/* contain: inline-size — the strip's width never depends on how many photos it holds, so a long
+   strip scrolls instead of stretching the whole window (it made the window 40 photos wide). */
+.cd-photos { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 6px; margin-bottom: 10px; contain: inline-size; }
+.card-designer > *, .card-designer .field { min-width: 0; }
 .cd-photos button {
   position: relative; flex: 0 0 64px; height: 64px; padding: 0; border-radius: 8px; overflow: hidden;
   border: 2px solid transparent; background: var(--panel-2); cursor: pointer;
