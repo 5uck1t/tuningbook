@@ -1,10 +1,14 @@
-# Builds the web version (web/) and publishes it to GitHub Pages on every push to main.
-# One-time setup on GitHub: Settings → Pages → Build and deployment → Source: "GitHub Actions".
-name: Deploy website
+# TuningBook now lives at https://tuningbook.pages.dev (Cloudflare Pages builds web/ on every push).
+# The old GitHub Pages address (5uck1t.github.io/tuningbook) is kept only as a redirect, so old
+# bookmarks, installed web apps and shared build links (#/b/…) still arrive at the new site.
+name: Deploy redirect to GitHub Pages
 
 on:
   push:
     branches: [main]
+    paths:
+      - web/redirect/**
+      - .github/workflows/pages.yml
   workflow_dispatch:
 
 permissions:
@@ -21,21 +25,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: web/package-lock.json
-      - name: Install
-        run: npm ci
-        working-directory: web
-      - name: Build
-        run: npm run build
-        working-directory: web
+      - name: Assemble the redirect site
+        run: |
+          mkdir site
+          cp web/redirect/index.html site/index.html
+          cp web/redirect/index.html site/404.html
+          # An installed web app that is still open checks version.json; a "new" build id makes it
+          # offer "Update", which then lands on the redirect.
+          echo '{"build":"moved-to-pages-dev"}' > site/version.json
+          touch site/.nojekyll
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: web/dist
+          path: site
 
   deploy:
     needs: build

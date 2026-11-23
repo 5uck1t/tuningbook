@@ -1616,7 +1616,7 @@ function newShareId() {
   return [...crypto.getRandomValues(new Uint8Array(12))].map((b) => abc[b % abc.length]).join('');
 }
 
-// e.g. https://5uck1t.github.io/tuningbook/#/b/fiesta-st150-k3J9x2abQr7p — the readable name is
+// e.g. https://tuningbook.pages.dev/#/b/fiesta-st150-k3J9x2abQr7p — the readable name is
 // decoration, only the id after the last "-" matters.
 const shareLink = (car) => `${window.api.siteUrl}#/b/${slugify(car.name) ? slugify(car.name) + '-' : ''}${car.shareId}`;
 const shareIdFromHash = () => (location.hash.match(/^#\/b\/(?:[^/]*-)?([A-Za-z0-9]{10,32})$/) || [])[1];

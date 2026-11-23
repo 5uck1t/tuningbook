@@ -5,7 +5,7 @@ One shared UI (`src/renderer/`) runs in three places:
 
 | Version | Folder |
 |---|---|
-| **Website** (GitHub Pages) | `web/` |
+| **Website** — https://tuningbook.pages.dev | `web/` |
 | **Windows desktop app** (Electron) | `src/` |
 | **Android app** (Capacitor) | `mobile/` |
 
@@ -30,12 +30,16 @@ upload that local garage once (also available in Settings while it exists).
 
 ## Website (`web/`)
 
-Static site on GitHub Pages; Supabase provides login, the database and photo storage.
+Static site on **Cloudflare Pages** (https://tuningbook.pages.dev); Supabase provides login, the database and photo storage.
 
 - Photos are compressed **in the browser before upload** (photos ≤ 1600 px, receipts ≤ 2400 px, JPEG),
   so originals never leave the device and a typical photo takes ~300 KB.
 - Each account only sees its own rows and photos (row-level security in `web/supabase/schema.sql`).
-- Deploys automatically on every push to `main` (`.github/workflows/pages.yml`).
+- Deploys automatically on every push to `main`: Cloudflare Pages builds `web/` (root directory `web`,
+  build command `npm run build`, output `dist`, `NODE_VERSION=22`).
+- The old GitHub Pages address (`5uck1t.github.io/tuningbook`) only redirects to the new site
+  (`web/redirect/index.html`, deployed by `.github/workflows/pages.yml`), keeping share links working.
+- The site address is `SITE_URL` in `web/src/config.js`; Supabase's Auth URL settings must match it.
 
 ```powershell
 cd web
