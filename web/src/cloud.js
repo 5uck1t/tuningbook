@@ -8,7 +8,7 @@ import { createClient } from '@supabase/supabase-js';
 import { buildReportHtml } from '../../src/report.js';
 import { SUPABASE_URL, SUPABASE_KEY, PHOTO_BUCKET, SITE_URL } from './config.js';
 import { compressImage } from './compress.js';
-import { showAuth, showFatal } from './auth-ui.js';
+import { showAuth, showFatal, friendlyError } from './auth-ui.js';
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
   auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
@@ -203,6 +203,22 @@ async function fetchGarageRows(userId) {
 // ---------- admin (read-only view of every account; see supabase/003-admin.sql) ----------
 
 // false until 003-admin.sql has been run and this account is in the admins table.
+// Settings → Change password. The current password is checked first (signing in again with it),
+// so someone using an unlocked device can't lock the owner out of their account.
+async function changePassword(current, next) {
+  try {
+    const { error: wrong } = await supabase.auth.signInWithPassword({ email: user.email, password: current });
+    if (wrong) throw /invalid login credentials/i.test(wrong.message) ? new Error('Your current password is wrong.') : wrong;
+    const { error } = await supabase.auth.updateUser({ password: next });
+    if (error) throw error;
+  } catch (err) {
+    const msg = friendlyError(err);
+    if (/different from the old/i.test(msg)) throw new Error('The new password must be different from the current one.');
+    if (/weak|at least/i.test(msg)) throw new Error('That password is too weak. ' + msg);
+    throw new Error(msg);
+  }
+}
+
 async function isAdmin() {
   const { data, error } = await supabase.rpc('is_admin');
   return !error && data === true;
@@ -308,7 +324,7 @@ export const cloudApi = {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       user = session?.user && !recoveryMode ? session.user : await showAuth(supabase, recoveryMode ? 'recovery' : 'signin');
-      window.api.account = { email: user.email, signOut: () => supabase.auth.signOut() };
+      window.api.account = { email: user.email, signOut: () => supabase.auth.signOut(), changePassword };
 
       // Always ask for this user's rows only: admins are allowed to read everyone's (see
       // supabase/003-admin.sql), and those must never end up in — or be saved into — this garage.

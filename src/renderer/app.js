@@ -145,6 +145,140 @@ const catColor = (cat) => {
   return PALETTE[h % PALETTE.length];
 };
 
+// ----------------------------------------------------------------------
+//  Category dropdown: a text field with a styled list underneath. You can pick a category or
+//  type your own. Any input with data-combo="category" gets it the first time it's focused.
+// ----------------------------------------------------------------------
+
+// The built-in categories, followed by the user's own ones (used on any mod or plan).
+function categoryOptions() {
+  const own = new Set();
+  for (const car of state.db?.cars || []) {
+    for (const item of [...(car.mods || []), ...(car.plans || [])]) {
+      const c = (item.category || '').trim();
+      if (c && !CATEGORIES.some((x) => x.toLowerCase() === c.toLowerCase())) own.add(c);
+    }
+  }
+  return [...CATEGORIES, ...[...own].sort((a, b) => a.localeCompare(b))];
+}
+
+function attachCombo(input) {
+  if (input._combo) return;
+  input._combo = true;
+  const wrap = input.closest('.combo');
+  let panel = null;
+  let items = [];
+  let active = -1;
+  let showAll = true; // right after opening, list everything; typing filters
+
+  const same = (a, b) => a.toLowerCase() === b.toLowerCase();
+
+  const place = () => {
+    if (!panel) return;
+    const r = input.getBoundingClientRect();
+    const below = window.innerHeight - r.bottom - 12;
+    const above = r.top - 12;
+    const up = below < 180 && above > below;
+    panel.style.left = r.left + 'px';
+    panel.style.width = r.width + 'px';
+    panel.style.maxHeight = Math.max(120, Math.min(280, up ? above : below)) + 'px';
+    panel.style.top = up ? '' : r.bottom + 6 + 'px';
+    panel.style.bottom = up ? window.innerHeight - r.top + 6 + 'px' : '';
+  };
+
+  const draw = () => {
+    const all = categoryOptions();
+    const typed = input.value.trim();
+    items = showAll || !typed ? all : all.filter((c) => c.toLowerCase().includes(typed.toLowerCase()));
+    if (active >= items.length) active = items.length - 1;
+    const isNew = typed && !all.some((c) => same(c, typed));
+    panel.innerHTML = items.map((c, i) => `
+      <div class="combo-opt${i === active ? ' active' : ''}${same(c, typed) ? ' selected' : ''}" data-i="${i}" role="option">
+        <span class="dot" style="background:${catColor(c)}"></span><span class="txt">${esc(c)}</span>
+        ${same(c, typed) ? '<span class="tick">✓</span>' : ''}
+      </div>`).join('')
+      + (isNew ? `<div class="combo-new">New category: <b>${esc(typed)}</b></div>` : '');
+    panel.querySelector('.combo-opt.active')?.scrollIntoView({ block: 'nearest' });
+  };
+
+  const open = () => {
+    if (panel) return;
+    panel = document.createElement('div');
+    panel.className = 'combo-panel';
+    panel.setAttribute('role', 'listbox');
+    panel.addEventListener('mousedown', (e) => e.preventDefault()); // keep focus in the field
+    panel.addEventListener('click', (e) => {
+      const opt = e.target.closest('.combo-opt');
+      if (opt) pick(items[+opt.dataset.i]);
+    });
+    document.body.appendChild(panel);
+    wrap?.classList.add('open');
+    input.setAttribute('aria-expanded', 'true');
+    showAll = true;
+    active = categoryOptions().findIndex((c) => same(c, input.value.trim()));
+    draw();
+    place();
+    window.addEventListener('resize', place);
+    document.addEventListener('scroll', place, true);
+  };
+
+  const close = () => {
+    if (!panel) return;
+    panel.remove();
+    panel = null;
+    wrap?.classList.remove('open');
+    input.setAttribute('aria-expanded', 'false');
+    window.removeEventListener('resize', place);
+    document.removeEventListener('scroll', place, true);
+  };
+
+  const pick = (value) => {
+    input.value = value;
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+    close();
+  };
+
+  input.addEventListener('focus', open);
+  input.addEventListener('click', open);
+  input.addEventListener('blur', close);
+  input.addEventListener('input', () => {
+    open();
+    showAll = false;
+    active = input.value.trim() ? 0 : -1;
+    draw();
+  });
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (!panel) { open(); return; }
+      const n = items.length;
+      if (!n) return;
+      active = e.key === 'ArrowDown' ? (active + 1) % n : (active <= 0 ? n - 1 : active - 1);
+      draw();
+    } else if (e.key === 'Enter' && panel) {
+      e.preventDefault(); // choose, don't submit the form
+      if (active >= 0 && items[active]) pick(items[active]);
+      else close();
+    } else if (e.key === 'Escape' && panel) {
+      e.stopPropagation(); // close the list, not the whole window
+      close();
+    } else if (e.key === 'Tab') {
+      close();
+    }
+  });
+  wrap?.querySelector('.combo-toggle')?.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    if (panel) close();
+    else { input.focus(); open(); }
+  });
+  // Set up during the field's first focus, so that focus has already happened: open now.
+  if (document.activeElement === input) open();
+}
+
+document.addEventListener('focusin', (e) => {
+  if (e.target.matches?.('input[data-combo]')) attachCombo(e.target);
+});
+
 // Entries tagged "Maintenance" are listed in their own sub-tab, apart from the modifications.
 const isMaint = (m) => (m.category || '').trim().toLowerCase() === 'maintenance';
 const kindOf = (m) => (isMaint(m) ? 'maint' : 'mods');
@@ -519,8 +653,7 @@ function openModForm(car, mod, { prefill, onSaved, heading } = {}) {
       <div class="row c4">
         <div class="field">
           <label for="m-cat">Category</label>
-          <input type="text" id="m-cat" list="cat-list" value="${esc(draft.category)}" placeholder="Pick or type…" maxlength="40">
-          <datalist id="cat-list">${CATEGORIES.map((c) => `<option value="${esc(c)}">`).join('')}</datalist>
+          <div class="combo"><input type="text" id="m-cat" data-combo="category" value="${esc(draft.category)}" placeholder="Pick or type…" maxlength="40" autocomplete="off" role="combobox" aria-expanded="false" aria-autocomplete="list"><button type="button" class="combo-toggle" tabindex="-1" aria-label="Show categories"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></button></div>
         </div>
         <div class="field">
           <label for="m-price">Price</label>
@@ -683,8 +816,7 @@ function openPlanForm(car, item) {
       <div class="row c3">
         <div class="field">
           <label for="p-cat">Category</label>
-          <input type="text" id="p-cat" list="p-cat-list" value="${esc(d.category)}" placeholder="Pick or type…" maxlength="40">
-          <datalist id="p-cat-list">${CATEGORIES.map((c) => `<option value="${esc(c)}">`).join('')}</datalist>
+          <div class="combo"><input type="text" id="p-cat" data-combo="category" value="${esc(d.category)}" placeholder="Pick or type…" maxlength="40" autocomplete="off" role="combobox" aria-expanded="false" aria-autocomplete="list"><button type="button" class="combo-toggle" tabindex="-1" aria-label="Show categories"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></button></div>
         </div>
         <div class="field">
           <label for="p-price">Estimated price</label>
@@ -1007,6 +1139,64 @@ async function uploadLocalGarage() {
   }
 }
 
+function openChangePassword() {
+  const m = openModal(`
+    ${modalHead('Change password')}
+    <form class="modal-body" id="cp-form" novalidate>
+      <input type="email" autocomplete="username" value="${esc(window.api.account.email)}" hidden>
+      <div class="field">
+        <label for="cp-cur">Current password</label>
+        <input id="cp-cur" type="password" autocomplete="current-password" required>
+      </div>
+      <div class="field">
+        <label for="cp-new">New password</label>
+        <input id="cp-new" type="password" autocomplete="new-password" minlength="8" required>
+        <div class="muted" style="font-size:12px;margin-top:4px">At least 8 characters.</div>
+      </div>
+      <div class="field">
+        <label for="cp-again">Repeat new password</label>
+        <input id="cp-again" type="password" autocomplete="new-password" required>
+      </div>
+      <label class="cp-show"><input type="checkbox" id="cp-show"> Show passwords</label>
+      <div class="cp-error" role="alert" hidden></div>
+    </form>
+    <div class="modal-foot">
+      <button class="btn" data-close>Cancel</button>
+      <button class="btn primary" type="submit" form="cp-form" data-cp-save>Change password</button>
+    </div>`, { className: 'small', dismissable: true });
+
+  const form = $('#cp-form', m.el);
+  const errorBox = $('.cp-error', m.el);
+  const saveBtn = $('[data-cp-save]', m.el);
+  const showError = (msg) => { errorBox.textContent = msg; errorBox.hidden = !msg; };
+  $('#cp-cur', m.el).focus();
+  $('#cp-show', m.el).addEventListener('change', (e) => {
+    m.el.querySelectorAll('input[autocomplete$="password"]').forEach((i) => { i.type = e.target.checked ? 'text' : 'password'; });
+  });
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const current = $('#cp-cur', m.el).value;
+    const next = $('#cp-new', m.el).value;
+    const again = $('#cp-again', m.el).value;
+    if (!current) return showError('Enter your current password.');
+    if (next.length < 8) return showError('The new password must be at least 8 characters.');
+    if (next !== again) return showError('The two new passwords don’t match.');
+    if (next === current) return showError('The new password must be different from the current one.');
+    showError('');
+    saveBtn.disabled = true;
+    saveBtn.textContent = 'Saving…';
+    try {
+      await window.api.account.changePassword(current, next);
+      m.close();
+      toast('Password changed');
+    } catch (err) {
+      showError(err.message || String(err));
+      saveBtn.disabled = false;
+      saveBtn.textContent = 'Change password';
+    }
+  });
+}
+
 function openSettings() {
   const cur = state.db.settings.currency;
   const m = openModal(`
@@ -1037,7 +1227,10 @@ function openSettings() {
       <div class="field">
         <label>Account</label>
         <div class="muted" style="margin-bottom:8px">Signed in as <b style="color:var(--text)">${esc(window.api.account.email)}</b>. Your garage is saved online and available on every device you sign in on.</div>
-        <div><button class="btn danger" data-signout>Sign out</button></div>
+        <div class="actions">
+          ${window.api.account.changePassword ? '<button class="btn" data-change-pass>Change password</button>' : ''}
+          <button class="btn danger" data-signout>Sign out</button>
+        </div>
       </div>` : ''}
     </div>
     <div class="modal-foot">
@@ -1048,6 +1241,7 @@ function openSettings() {
   $('[data-folder]', m.el)?.addEventListener('click', () => window.api.openDataFolder());
   $('[data-local-upload]', m.el)?.addEventListener('click', () => { m.close(); uploadLocalGarage(); });
   $('[data-signout]', m.el)?.addEventListener('click', () => window.api.account.signOut());
+  $('[data-change-pass]', m.el)?.addEventListener('click', () => openChangePassword());
   $('[data-backup-export]', m.el).addEventListener('click', () => exportBackup());
   $('[data-backup-import]', m.el).addEventListener('click', () => { m.close(); importBackup(); });
   $('[data-save]', m.el).addEventListener('click', async () => {

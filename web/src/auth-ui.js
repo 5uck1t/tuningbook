@@ -117,7 +117,7 @@ export function showAuth(supabase, mode = 'signin') {
   });
 }
 
-function friendlyError(err) {
+export function friendlyError(err) {
   const msg = String(err?.message || err);
   if (/invalid login credentials/i.test(msg)) return 'Wrong email or password.';
   if (/email not confirmed/i.test(msg)) return 'Please confirm your email first — check your inbox for the link.';
