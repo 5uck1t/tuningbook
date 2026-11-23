@@ -1193,9 +1193,10 @@ function renderCar(car) {
         <div class="seg">
           <button data-action="car-tab" data-id="mods" class="${state.carTab === 'mods' ? 'active' : ''}">Modifications <span>${car.mods.length}</span></button>
           <button data-action="car-tab" data-id="plan" class="${state.carTab === 'plan' ? 'active' : ''}">Plan <span>${car.plan.length}</span></button>
+          <button data-action="car-tab" data-id="timeline" class="${state.carTab === 'timeline' ? 'active' : ''}">Timeline</button>
         </div>
         <div class="spacer"></div>
-        ${state.carTab === 'plan' ? `
+        ${state.carTab === 'timeline' ? '' : state.carTab === 'plan' ? `
         <span class="muted plan-note">Private — not included in PDF exports</span>
         <button class="btn" data-action="add-plan">${ICON.plus} Add to plan</button>` : `
         <div class="search">${ICON.search}<input type="search" id="mod-search" placeholder="Search…" value="${esc(state.modSearch)}"></div>
@@ -1328,6 +1329,7 @@ function render() {
     if (!car) { state.view = { name: 'garage' }; return render(); }
     view.innerHTML = renderCar(car);
     if (state.carTab === 'plan') { renderPlanList(car); return; }
+    if (state.carTab === 'timeline') { renderTimeline(car); return; }
     renderModList(car);
     $('#mod-search').addEventListener('input', (e) => { state.modSearch = e.target.value; renderModList(car); });
     $('#mod-sort').addEventListener('change', (e) => { state.modSort = e.target.value; renderModList(car); });
@@ -1343,6 +1345,263 @@ function render() {
     view.innerHTML = renderGarage();
   }
 }
+
+// ======================================================================
+//  Timeline tab: mileage and spending over time
+//  Two charts on one shared time axis (different units never share a y-axis), hover tooltips,
+//  and a month-by-month list underneath that doubles as the readable table version.
+// ======================================================================
+
+const TL_SPEND = '#f5532f'; // both checked against the dark chart surface (contrast + colour-blind safe)
+const TL_KM = '#4f8ff7';
+const isoDay = /^\d{4}-\d{2}-\d{2}$/;
+const toTime = (iso) => new Date(iso + 'T12:00:00').getTime();
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+function timelineData(car) {
+  const dated = car.mods.filter((m) => isoDay.test(m.date || ''))
+    .sort((a, b) => a.date.localeCompare(b.date) || (a.createdAt || '').localeCompare(b.createdAt || ''));
+  let running = 0;
+  const spend = [];
+  for (const m of dated) {
+    const price = Number(m.price) || 0;
+    if (!price) continue;
+    running += price;
+    spend.push({ t: toTime(m.date), v: running, mod: m, delta: price });
+  }
+  const km = dated.filter((m) => hasKm(m.mileage)).map((m) => ({ t: toTime(m.date), v: Number(m.mileage), mod: m }));
+  return { dated, spend, km, undated: car.mods.filter((m) => !isoDay.test(m.date || '')) };
+}
+
+// "Nice" round tick values covering lo..hi.
+function niceTicks(lo, hi, count = 4) {
+  const span = hi - lo || Math.abs(hi) || 1;
+  const raw = span / count;
+  const mag = 10 ** Math.floor(Math.log10(raw));
+  const step = [1, 2, 2.5, 5, 10].map((f) => f * mag).find((st) => st >= raw) || 10 * mag;
+  const ticks = [];
+  for (let v = Math.floor(lo / step) * step; v < hi + step * 0.999; v += step) ticks.push(Math.round(v * 1e6) / 1e6);
+  return ticks;
+}
+
+// Month ticks across the range, thinned to fit the width.
+function monthTicks(t0, t1, maxTicks) {
+  const start = new Date(t0); start.setDate(1); start.setHours(12, 0, 0, 0);
+  const months = (new Date(t1).getFullYear() - start.getFullYear()) * 12 + new Date(t1).getMonth() - start.getMonth() + 1;
+  const every = [1, 2, 3, 6, 12, 24].find((k) => months / k <= maxTicks) || 24;
+  const out = [];
+  const d = new Date(start);
+  if (every >= 12) d.setMonth(0);
+  else d.setMonth(Math.ceil(d.getMonth() / every) * every);
+  for (; d.getTime() <= t1; d.setMonth(d.getMonth() + every)) {
+    if (d.getTime() < t0) continue;
+    const first = !out.length;
+    out.push({ t: d.getTime(), label: every >= 12 ? String(d.getFullYear()) : `${MONTHS[d.getMonth()]}${d.getMonth() === 0 || first ? ' ' + String(d.getFullYear()).slice(2).padStart(3, "'") : ''}` });
+  }
+  return out;
+}
+
+const compactMoney = (v) => {
+  try {
+    return new Intl.NumberFormat(undefined, { style: 'currency', currency: state.db.settings.currency || 'EUR', notation: 'compact', maximumFractionDigits: 1 }).format(v);
+  } catch { return String(Math.round(v)); }
+};
+const compactKm = (v) => new Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 }).format(v);
+
+const tlCharts = new Map(); // chart id → { points, X, Y, ... } for the hover layer
+
+function tlChart({ id, title, sub, points, color, step, yFmt, tipValue, xMin, xMax, width }) {
+  const H = 220, ml = 58, mr = 16, mt = 14, mb = 28;
+  const w = Math.max(260, Math.round(width));
+  const iw = w - ml - mr, ih = H - mt - mb;
+  const vals = points.map((p) => p.v);
+  let lo, hi;
+  if (step) { lo = 0; hi = Math.max(...vals) * 1.06 || 1; }
+  else {
+    const pad = Math.max((Math.max(...vals) - Math.min(...vals)) * 0.12, 500);
+    lo = Math.max(0, Math.min(...vals) - pad);
+    hi = Math.max(...vals) + pad;
+  }
+  const yTicks = niceTicks(lo, hi, 4);
+  lo = yTicks[0]; hi = yTicks[yTicks.length - 1];
+  const X = (t) => ml + ((t - xMin) / (xMax - xMin)) * iw;
+  const Y = (v) => mt + ih - ((v - lo) / (hi - lo || 1)) * ih;
+  const r1 = (n) => Math.round(n * 10) / 10;
+
+  let line;
+  if (step) {
+    // Cumulative spending: flat between purchases, a jump on each purchase.
+    line = `M${r1(X(points[0].t))},${r1(Y(0))}`;
+    for (const pt of points) line += ` H${r1(X(pt.t))} V${r1(Y(pt.v))}`;
+    line += ` H${r1(X(xMax))}`;
+  } else {
+    line = points.map((pt, i) => `${i ? 'L' : 'M'}${r1(X(pt.t))},${r1(Y(pt.v))}`).join(' ');
+  }
+  const area = step ? `${line} V${r1(Y(lo))} H${r1(X(points[0].t))} Z` : '';
+  const xt = monthTicks(xMin, xMax, Math.max(3, Math.floor(iw / 56)));
+
+  tlCharts.set(id, { points, X, Y, color, tipValue, ml, mr, mt, ih, w });
+  return `
+    <figure class="tl-chart" data-chart="${id}">
+      <figcaption><b>${esc(title)}</b>${sub ? `<span>${esc(sub)}</span>` : ''}</figcaption>
+      <div class="tl-plot">
+        <svg width="${w}" height="${H}" viewBox="0 0 ${w} ${H}" role="img" aria-label="${esc(title)}">
+          <defs><linearGradient id="${id}-fill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="${color}" stop-opacity=".28"/><stop offset="1" stop-color="${color}" stop-opacity="0"/>
+          </linearGradient></defs>
+          <g class="tl-grid">${yTicks.map((v) => `<line x1="${ml}" x2="${w - mr}" y1="${r1(Y(v))}" y2="${r1(Y(v))}"/>`).join('')}</g>
+          <g class="tl-axis">
+            ${yTicks.map((v) => `<text x="${ml - 8}" y="${r1(Y(v)) + 4}" text-anchor="end">${esc(yFmt(v))}</text>`).join('')}
+            ${xt.map((x) => `<text x="${r1(X(x.t))}" y="${H - 8}" text-anchor="middle">${esc(x.label)}</text>`).join('')}
+          </g>
+          ${area ? `<path d="${area}" fill="url(#${id}-fill)"/>` : ''}
+          <path d="${line}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+          <g class="tl-dots">${points.map((pt) => `<circle cx="${r1(X(pt.t))}" cy="${r1(Y(pt.v))}" r="4" fill="${color}"/>`).join('')}</g>
+          <line class="tl-cross" x1="0" x2="0" y1="${mt}" y2="${mt + ih}" visibility="hidden"/>
+          <circle class="tl-focus" r="6" fill="${color}" visibility="hidden"/>
+          <rect class="tl-hit" x="${ml}" y="0" width="${iw}" height="${H}" fill="transparent"/>
+        </svg>
+        <div class="tl-tip" hidden></div>
+      </div>
+    </figure>`;
+}
+
+function attachTimelineHover(root) {
+  $$('.tl-chart', root).forEach((fig) => {
+    const c = tlCharts.get(fig.dataset.chart);
+    if (!c) return;
+    const svg = fig.querySelector('svg');
+    const hit = fig.querySelector('.tl-hit');
+    const cross = fig.querySelector('.tl-cross');
+    const focus = fig.querySelector('.tl-focus');
+    const tip = fig.querySelector('.tl-tip');
+    const hide = () => { cross.setAttribute('visibility', 'hidden'); focus.setAttribute('visibility', 'hidden'); tip.hidden = true; };
+    const show = (e) => {
+      const box = svg.getBoundingClientRect();
+      const x = (e.clientX - box.left) * (c.w / box.width);
+      let best = c.points[0];
+      for (const pt of c.points) if (Math.abs(c.X(pt.t) - x) < Math.abs(c.X(best.t) - x)) best = pt;
+      const px = c.X(best.t), py = c.Y(best.v);
+      cross.setAttribute('x1', px); cross.setAttribute('x2', px); cross.setAttribute('visibility', 'visible');
+      focus.setAttribute('cx', px); focus.setAttribute('cy', py); focus.setAttribute('visibility', 'visible');
+      tip.innerHTML = c.tipValue(best);
+      tip.hidden = false;
+      const sx = px * (box.width / c.w);
+      const left = Math.min(Math.max(sx - tip.offsetWidth / 2, 0), box.width - tip.offsetWidth);
+      tip.style.left = left + 'px';
+      tip.style.top = Math.max(py * (box.height / 220) - tip.offsetHeight - 14, 0) + 'px';
+    };
+    hit.addEventListener('pointermove', show);
+    hit.addEventListener('pointerdown', show);
+    hit.addEventListener('pointerleave', hide);
+  });
+}
+
+function renderTimeline(car) {
+  const list = $('#mod-list');
+  if (!list) return;
+  const { dated, spend, km, undated } = timelineData(car);
+  if (!dated.length) {
+    list.innerHTML = `
+      <div class="empty">
+        <div style="color:var(--accent)">${ICON.calendar}</div>
+        <h2>Nothing on the timeline yet</h2>
+        <div>Give your modifications a date (and mileage) to see spending and kilometres over time.</div>
+      </div>`;
+    return;
+  }
+
+  // Headline numbers.
+  const total = carTotal(car);
+  const first = dated[0].date, last = dated[dated.length - 1].date;
+  const months = Math.max(1, (toTime(last) - toTime(first)) / (30.44 * 86400000));
+  const kmVals = km.map((p) => p.v);
+  const kmSpan = kmVals.length > 1 ? Math.max(...kmVals) - Math.min(...kmVals) : 0;
+  const spentInKmWindow = kmSpan
+    ? spend.filter((p) => p.t >= km[0].t && p.t <= km[km.length - 1].t).reduce((n, p) => n + p.delta, 0)
+    : 0;
+  const tiles = [
+    [money(total), 'Spent in total'],
+    [months >= 1.5 ? money(total / months) : '—', 'Average per month'],
+    kmSpan ? [`${kmSpan.toLocaleString()} km`, `Driven · ${compactKm(Math.min(...kmVals))} → ${compactKm(Math.max(...kmVals))}`] : null,
+    kmSpan >= 100 ? [money(spentInKmWindow / kmSpan), 'Spent per km driven'] : null,
+  ].filter(Boolean);
+
+  // Shared time axis for both charts.
+  const ts = [...spend, ...km].map((p) => p.t);
+  let xMin = Math.min(...ts), xMax = Math.max(...ts);
+  const padT = Math.max((xMax - xMin) * 0.03, 12 * 86400000);
+  xMin -= padT; xMax += padT;
+  const width = list.clientWidth - 30;
+  const when = (pt) => `<span class="tl-tip-date">${fmtDate(pt.mod.date)}</span>`;
+
+  const charts = [];
+  if (spend.length) {
+    charts.push(tlChart({
+      id: 'tl-spend', title: 'Money spent', sub: 'running total', points: spend, color: TL_SPEND, step: true,
+      yFmt: compactMoney, xMin, xMax, width,
+      tipValue: (pt) => `${when(pt)}<b>${money(pt.v)}</b><span>+ ${money(pt.delta)} · ${esc(pt.mod.title)}</span>`,
+    }));
+  }
+  if (km.length) {
+    charts.push(tlChart({
+      id: 'tl-km', title: 'Mileage', sub: 'km on the clock', points: km, color: TL_KM, step: false,
+      yFmt: compactKm, xMin, xMax, width,
+      tipValue: (pt) => `${when(pt)}<b>${pt.v.toLocaleString()} km</b><span>${esc(pt.mod.title)}</span>`,
+    }));
+  }
+  const chartNote = !km.length ? 'Add mileage to your entries to see the mileage chart.'
+    : !spend.length ? 'Add prices to your entries to see the spending chart.' : '';
+
+  // Month-by-month list (newest first).
+  const groups = new Map();
+  for (const m of [...dated].reverse()) {
+    const key = m.date.slice(0, 7);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(m);
+  }
+  const monthName = (key) => `${new Date(key + '-15T12:00:00').toLocaleString(undefined, { month: 'long' })} ${key.slice(0, 4)}`;
+  const item = (m) => `
+    <div class="tl-item" role="button" tabindex="0" data-action="open-mod" data-id="${m.id}">
+      <i style="background:${catColor(m.category || 'Other')}"></i>
+      <div style="min-width:0">
+        <b>${esc(m.title)}</b>
+        <div class="meta">
+          ${m.date ? `<span>${fmtDate(m.date)}</span>` : ''}
+          ${hasKm(m.mileage) ? `<span>${fmtKm(m.mileage)}</span>` : ''}
+          ${m.category ? `<span>${esc(m.category)}</span>` : ''}
+        </div>
+      </div>
+      <span class="tl-price">${money(m.price)}</span>
+    </div>`;
+
+  list.innerHTML = `
+    <div class="garage-stats tl-stats">${tiles.map(([v, l]) => `<div class="stat"><b>${v}</b><span>${esc(l)}</span></div>`).join('')}</div>
+    <div class="tl-charts">${charts.join('')}</div>
+    ${chartNote ? `<div class="muted tl-note">${chartNote}</div>` : ''}
+    <div class="tl-list">
+      ${[...groups].map(([key, mods]) => `
+        <section class="tl-month">
+          <h3>${esc(monthName(key))}<span>${mods.length} entr${mods.length === 1 ? 'y' : 'ies'} · ${money(sumPrice(mods))}</span></h3>
+          ${mods.map(item).join('')}
+        </section>`).join('')}
+      ${undated.length ? `
+        <section class="tl-month">
+          <h3>No date<span>${undated.length} entr${undated.length === 1 ? 'y' : 'ies'} · ${money(sumPrice(undated))}</span></h3>
+          ${undated.map(item).join('')}
+        </section>` : ''}
+    </div>`;
+  attachTimelineHover(list);
+}
+
+// Charts are drawn to the page width: redraw when it changes.
+let tlResize = 0;
+window.addEventListener('resize', () => {
+  clearTimeout(tlResize);
+  tlResize = setTimeout(() => {
+    if (state.view?.name === 'car' && state.carTab === 'timeline') renderTimeline(carById(state.view.carId));
+  }, 150);
+});
 
 // ======================================================================
 //  Sharing: public link + build card image
