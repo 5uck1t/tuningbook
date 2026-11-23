@@ -448,6 +448,20 @@ textarea { resize: vertical; min-height: 80px; }
 .cd-mods .check span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cd-mods .check b { font-weight: 600; color: var(--muted); font-size: 13px; }
 .cd-mods .check.disabled { opacity: .45; cursor: default; }
+.cd-styles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.cd-styles button {
+  display: flex; align-items: center; gap: 8px; padding: 7px 9px; border-radius: 10px;
+  border: 1.5px solid var(--line); background: var(--panel-2); color: var(--text); font-weight: 600; font-size: 13px; cursor: pointer;
+}
+.cd-styles button i { width: 22px; height: 30px; border-radius: 5px; border: 1.5px solid rgba(255,255,255,.25); flex-shrink: 0; }
+.cd-styles button.on { border-color: var(--accent); background: rgba(255, 90, 54, .1); }
+.cd-colours { display: flex; gap: 10px; flex-wrap: wrap; }
+.cd-colours button {
+  width: 30px; height: 30px; border-radius: 50%; border: 2px solid rgba(255,255,255,.15); cursor: pointer; padding: 0;
+}
+.cd-colours button.on { box-shadow: 0 0 0 2px var(--panel), 0 0 0 4px #fff; }
+.cd-colour-field.off { opacity: .4; pointer-events: none; }
+.cd-colour-field.off label::after { content: ' — this style has its own colours'; text-transform: none; letter-spacing: 0; font-weight: 400; }
 .pos-frame.card-tall { aspect-ratio: 932 / 1592; width: 110px; }
 .pos-frame.card-wide { aspect-ratio: 880 / 620; width: 190px; }
 

@@ -1437,11 +1437,15 @@ function loadCardSettings(car) {
   const ids = new Set(car.mods.map((m) => m.id));
   const mods = Array.isArray(saved.mods) ? saved.mods.filter((id) => ids.has(id)).slice(0, 4) : defaultCardMods(car, showPrices);
   const pos = photo && saved.photo === photo.file && saved.pos ? saved.pos : photo?.pos || null;
-  return { photo, pos, mods, showPrices };
+  const style = CARD_STYLES.some((x) => x.id === saved.style) ? saved.style : 'classic';
+  const colour = saved.colour in CARD_COLOURS ? saved.colour : 'orange';
+  return { photo, pos, mods, showPrices, style, colour };
 }
 function saveCardSettings(car, c) {
   try {
-    localStorage.setItem(cardKey(car), JSON.stringify({ photo: c.photo?.file || null, pos: c.pos || null, mods: c.mods, showPrices: c.showPrices }));
+    localStorage.setItem(cardKey(car), JSON.stringify({
+      photo: c.photo?.file || null, pos: c.pos || null, mods: c.mods, showPrices: c.showPrices, style: c.style, colour: c.colour,
+    }));
   } catch { /* storage unavailable */ }
 }
 
@@ -1467,15 +1471,126 @@ function fitFont(g, text, weight, size, min, maxWidth, family) {
   return min;
 }
 
+// ---------- card styles ----------
+
+const CARD_COLOURS = {
+  orange: '#ff5a36', red: '#e63946', blue: '#3b82f6', green: '#22c55e',
+  purple: '#a855f7', gold: '#e0a526', silver: '#a3a9b6',
+};
+// `colour: true` → the style uses the chosen colour; Holo and Retro have their own palettes.
+const CARD_STYLES = [
+  { id: 'classic', name: 'Classic', colour: true },
+  { id: 'holo', name: 'Holo', colour: false },
+  { id: 'carbon', name: 'Carbon', colour: true },
+  { id: 'neon', name: 'Neon', colour: true },
+  { id: 'retro', name: 'Retro', colour: false },
+  { id: 'minimal', name: 'Minimal', colour: true },
+];
+const RAINBOW = ['#ff4d6d', '#ffb347', '#fff275', '#5ef38c', '#4dd9ff', '#7b6bff', '#ff6bd6', '#ff4d6d'];
+
+const hexRgb = (hex) => { const n = parseInt(hex.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
+const rgba = (hex, a) => `rgba(${hexRgb(hex).join(',')},${a})`;
+// Blend hex colour `a` toward `b` by t (0–1).
+const mixHex = (a, b, t) => '#' + hexRgb(a).map((v, i) => Math.round(v + (hexRgb(b)[i] - v) * t).toString(16).padStart(2, '0')).join('');
+
+// Everything the drawing code needs to know about a style. `frame` / `badge` are painters:
+// (g, x, y, w, h) → a fill/stroke style for that box.
+function cardTheme(styleId, colourId) {
+  const A = CARD_COLOURS[colourId] || CARD_COLOURS.orange;
+  const linear = (stops) => (g, x, y, w, h) => {
+    const gr = g.createLinearGradient(x, y, x + w, y + h);
+    stops.forEach(([o, c]) => gr.addColorStop(o, c));
+    return gr;
+  };
+  const rainbow = (g, x, y, w, h) => {
+    const gr = g.createConicGradient(0.9, x + w / 2, y + h / 2);
+    RAINBOW.forEach((c, i) => gr.addColorStop(i / (RAINBOW.length - 1), c));
+    return gr;
+  };
+  const solid = (c) => () => c;
+  const accentFoil = linear([[0, A], [0.3, mixHex(A, '#ffffff', 0.55)], [0.55, A], [0.8, mixHex(A, '#ffffff', 0.4)], [1, mixHex(A, '#000000', 0.4)]]);
+  const base = {
+    dark: true, body: '#14171e', shade: '#0a0c10', accent: A, price: A,
+    text: '#ffffff', sub: '#b9bfcc', muted: '#9aa1ae', title: '#eceef3',
+    statFill: 'rgba(255,255,255,.05)', statFillTall: 'rgba(12,14,19,.62)', statStroke: 'rgba(255,255,255,.09)',
+    sep: 'rgba(255,255,255,.07)', frameWidth: 10, frame: accentFoil, badge: accentFoil, badgeText: '#fff',
+    glow: A, logoBg: A, italic: false,
+  };
+  switch (styleId) {
+    case 'holo':
+      return { ...base, accent: '#7fe3ff', price: '#ffffff', body: '#141826', frame: rainbow, badge: rainbow, badgeText: '#14171e', glow: '#7b6bff', logoBg: '#7b6bff', holo: true, frameWidth: 12 };
+    case 'carbon':
+      return {
+        ...base, carbon: true, frameWidth: 9,
+        frame: linear([[0, '#eef0f3'], [0.25, '#8b929c'], [0.5, '#f5f6f8'], [0.75, '#6b7280'], [1, '#d9dde3']]),
+        badge: linear([[0, A], [1, mixHex(A, '#000000', 0.35)]]),
+        statFill: 'rgba(255,255,255,.06)',
+      };
+    case 'neon':
+      return { ...base, body: '#0b0714', shade: '#07040d', neon: true, frame: solid(A), badge: solid(A), glow: A, frameWidth: 6, sub: '#c9c2dd', muted: '#a39cba' };
+    case 'retro': {
+      const [R1, R2, R3] = ['#e8743b', '#c8423a', '#7a3e2b'];
+      return {
+        ...base, dark: false, body: '#f3e8cf', shade: '#efe2c4', accent: R2, price: '#2b2118',
+        text: '#2b2118', sub: '#6b5a4a', muted: '#8a7764', title: '#2b2118',
+        statFill: 'rgba(43,33,24,.06)', statFillTall: 'rgba(243,232,207,.85)', statStroke: 'rgba(43,33,24,.16)',
+        sep: 'rgba(43,33,24,.12)', frame: solid('#3b2a20'), frameWidth: 12, badge: solid(R2),
+        glow: R1, logoBg: R2, italic: true, stripes: [R1, R2, R3],
+      };
+    }
+    case 'minimal':
+      return {
+        ...base, dark: false, body: '#ffffff', shade: '#ffffff', price: '#111318',
+        text: '#111318', sub: '#5b6170', muted: '#8a909c', title: '#1b1e25',
+        statFill: '#f4f5f7', statFillTall: 'rgba(255,255,255,.86)', statStroke: '#e6e8ec', sep: '#eceef1',
+        frame: solid('#dfe2e7'), frameWidth: 4, badge: solid(A),
+      };
+    default:
+      return base;
+  }
+}
+
+// A small repeating carbon-fibre weave.
+function carbonPattern(g) {
+  const c = Object.assign(document.createElement('canvas'), { width: 28, height: 28 });
+  const x = c.getContext('2d');
+  x.fillStyle = '#0d0e10';
+  x.fillRect(0, 0, 28, 28);
+  const cell = (px, py, across) => {
+    const gr = across ? x.createLinearGradient(px, py, px, py + 14) : x.createLinearGradient(px, py, px + 14, py);
+    gr.addColorStop(0, '#2c2f35');
+    gr.addColorStop(0.5, '#1a1c20');
+    gr.addColorStop(1, '#0f1012');
+    x.fillStyle = gr;
+    x.fillRect(px + 1, py + 1, 12, 12);
+  };
+  cell(0, 0, true); cell(14, 14, true); cell(14, 0, false); cell(0, 14, false);
+  return g.createPattern(c, 'repeat');
+}
+
+// Same "random" sparkles every time for the same car.
+function seededRandom(seed) {
+  let h = 2166136261;
+  for (const ch of String(seed)) h = Math.imul(h ^ ch.charCodeAt(0), 16777619);
+  return () => { h = Math.imul(h ^ (h >>> 15), 2246822507); h = Math.imul(h ^ (h >>> 13), 3266489909); return ((h ^= h >>> 16) >>> 0) / 4294967296; };
+}
+function drawSparkle(g, x, y, r) {
+  g.beginPath();
+  g.moveTo(x, y - r); g.quadraticCurveTo(x, y, x + r, y); g.quadraticCurveTo(x, y, x, y + r);
+  g.quadraticCurveTo(x, y, x - r, y); g.quadraticCurveTo(x, y, x, y - r);
+  g.fill();
+}
+
 async function makeBuildCard(car, settings) {
   const { photo, pos, showPrices } = settings;
+  const T = cardTheme(settings.style, settings.colour);
   const canvas = Object.assign(document.createElement('canvas'), { width: CARD_W, height: CARD_H });
   const g = canvas.getContext('2d');
   const FONT = '"Segoe UI", system-ui, -apple-system, Roboto, sans-serif';
-  const ACCENT = '#ff5a36';
   const M = 44; // inner margin
   const left = CARD.x + M, right = CARD.x + CARD.w - M, innerW = CARD.w - 2 * M;
   const spaced = (px) => { if ('letterSpacing' in g) g.letterSpacing = px; };
+  const nameStyle = T.italic ? 'italic 800' : '800';
 
   let bmp = null;
   if (photo) {
@@ -1483,7 +1598,7 @@ async function makeBuildCard(car, settings) {
   }
   const wide = !bmp || isWide(bmp.width, bmp.height);
 
-  // Background: the photo, blurred, behind the card + a warm glow.
+  // Background: the photo, blurred, behind the card + a glow in the style's colour.
   g.fillStyle = '#0b0d11';
   g.fillRect(0, 0, CARD_W, CARD_H);
   if (bmp) {
@@ -1494,28 +1609,31 @@ async function makeBuildCard(car, settings) {
     g.restore();
   }
   const glow = g.createRadialGradient(CARD_W / 2, 0, 0, CARD_W / 2, 0, 1200);
-  glow.addColorStop(0, 'rgba(255,90,54,.30)');
-  glow.addColorStop(1, 'rgba(255,90,54,0)');
+  glow.addColorStop(0, rgba(T.glow, 0.32));
+  glow.addColorStop(1, rgba(T.glow, 0));
   g.fillStyle = glow;
   g.fillRect(0, 0, CARD_W, CARD_H);
 
-  // The card.
+  // Card body.
   g.save();
   g.shadowColor = 'rgba(0,0,0,.65)';
   g.shadowBlur = 70;
   g.shadowOffsetY = 24;
   roundRectPath(g, CARD);
-  g.fillStyle = '#14171e';
+  g.fillStyle = T.body;
   g.fill();
   g.restore();
-  // Subtle diagonal sheen on the card body.
   g.save();
   roundRectPath(g, CARD);
   g.clip();
+  if (T.carbon) {
+    g.fillStyle = carbonPattern(g);
+    g.fillRect(CARD.x, CARD.y, CARD.w, CARD.h);
+  }
   const sheen = g.createLinearGradient(CARD.x, CARD.y, CARD.x + CARD.w, CARD.y + CARD.h);
-  sheen.addColorStop(0, 'rgba(255,255,255,.05)');
+  sheen.addColorStop(0, T.dark ? 'rgba(255,255,255,.06)' : 'rgba(255,255,255,.5)');
   sheen.addColorStop(0.5, 'rgba(255,255,255,0)');
-  sheen.addColorStop(1, 'rgba(255,90,54,.07)');
+  sheen.addColorStop(1, rgba(T.accent, T.dark ? 0.07 : 0.06));
   g.fillStyle = sheen;
   g.fillRect(CARD.x, CARD.y, CARD.w, CARD.h);
   g.restore();
@@ -1528,9 +1646,9 @@ async function makeBuildCard(car, settings) {
   if (bmp) {
     drawFocused(g, bmp, pos, box.x, box.y, box.w, box.h);
   } else {
-    g.fillStyle = '#1c2029';
+    g.fillStyle = T.dark ? '#1c2029' : rgba(T.text, 0.06);
     g.fillRect(box.x, box.y, box.w, box.h);
-    g.fillStyle = '#3a4150';
+    g.fillStyle = T.muted;
     g.font = `600 34px ${FONT}`;
     g.textAlign = 'center';
     g.textBaseline = 'middle';
@@ -1538,48 +1656,98 @@ async function makeBuildCard(car, settings) {
     g.textAlign = 'left';
   }
   if (!wide) {
+    // Fade the photo into the card colour behind the header and the stats.
     let shade = g.createLinearGradient(0, box.y, 0, box.y + 260);
-    shade.addColorStop(0, 'rgba(10,12,16,.8)');
-    shade.addColorStop(1, 'rgba(10,12,16,0)');
+    shade.addColorStop(0, rgba(T.shade, 0.82));
+    shade.addColorStop(1, rgba(T.shade, 0));
     g.fillStyle = shade;
     g.fillRect(box.x, box.y, box.w, 260);
-    shade = g.createLinearGradient(0, box.y + box.h * 0.36, 0, box.y + box.h);
-    shade.addColorStop(0, 'rgba(10,12,16,0)');
-    shade.addColorStop(0.42, 'rgba(10,12,16,.84)');
-    shade.addColorStop(1, 'rgba(10,12,16,.97)');
+    // Light styles need a stronger, earlier fade: dark text on a dark photo would be unreadable.
+    shade = g.createLinearGradient(0, box.y + box.h * (T.dark ? 0.36 : 0.3), 0, box.y + box.h);
+    shade.addColorStop(0, rgba(T.shade, 0));
+    shade.addColorStop(T.dark ? 0.42 : 0.36, rgba(T.shade, T.dark ? 0.86 : 0.94));
+    shade.addColorStop(1, rgba(T.shade, T.dark ? 0.97 : 0.99));
     g.fillStyle = shade;
-    g.fillRect(box.x, box.y, box.w, box.h);
-  } else {
-    // A light vignette inside the photo window.
-    const v = g.createLinearGradient(0, box.y + box.h * 0.6, 0, box.y + box.h);
-    v.addColorStop(0, 'rgba(10,12,16,0)');
-    v.addColorStop(1, 'rgba(10,12,16,.35)');
-    g.fillStyle = v;
     g.fillRect(box.x, box.y, box.w, box.h);
   }
   g.restore();
   if (wide) {
     roundRectPath(g, box);
-    g.strokeStyle = 'rgba(255,255,255,.16)';
+    g.strokeStyle = T.dark ? 'rgba(255,255,255,.16)' : rgba(T.text, 0.2);
     g.lineWidth = 3;
     g.stroke();
   }
 
-  // Holo frame.
-  const holo = g.createLinearGradient(CARD.x, CARD.y, CARD.x + CARD.w, CARD.y + CARD.h);
-  holo.addColorStop(0, '#ff5a36');
-  holo.addColorStop(0.3, '#ffc98a');
-  holo.addColorStop(0.55, '#ff5a36');
-  holo.addColorStop(0.8, '#ffb36b');
-  holo.addColorStop(1, '#a8321c');
+  // Holo: rainbow foil shimmer and sparkles over the card.
+  if (T.holo) {
+    g.save();
+    roundRectPath(g, CARD);
+    g.clip();
+    g.globalCompositeOperation = 'soft-light';
+    const foil = g.createLinearGradient(CARD.x, CARD.y + CARD.h, CARD.x + CARD.w, CARD.y);
+    RAINBOW.forEach((c, i) => foil.addColorStop(i / (RAINBOW.length - 1), c));
+    g.globalAlpha = 0.75;
+    g.fillStyle = foil;
+    g.fillRect(CARD.x, CARD.y, CARD.w, CARD.h);
+    g.globalCompositeOperation = 'screen';
+    g.globalAlpha = 0.16;
+    for (let i = 0; i < 6; i++) {
+      const band = g.createLinearGradient(CARD.x, CARD.y + i * 300, CARD.x + CARD.w, CARD.y + i * 300 + 400);
+      band.addColorStop(0, 'rgba(255,255,255,0)');
+      band.addColorStop(0.5, 'rgba(255,255,255,1)');
+      band.addColorStop(1, 'rgba(255,255,255,0)');
+      g.fillStyle = band;
+      g.fillRect(CARD.x, CARD.y + i * 300 - 60, CARD.w, 120);
+    }
+    g.globalCompositeOperation = 'source-over';
+    const rnd = seededRandom(car.id);
+    for (let i = 0; i < 26; i++) {
+      g.globalAlpha = 0.35 + rnd() * 0.55;
+      g.fillStyle = '#ffffff';
+      drawSparkle(g, CARD.x + 30 + rnd() * (CARD.w - 60), CARD.y + 30 + rnd() * (CARD.h - 60), 6 + rnd() * 14);
+    }
+    g.restore();
+  }
+
+  // Retro: racing stripes down the right side.
+  if (T.stripes) {
+    g.save();
+    roundRectPath(g, CARD);
+    g.clip();
+    T.stripes.forEach((c, i) => {
+      g.fillStyle = c;
+      g.fillRect(CARD.x + CARD.w - 34 - i * 22, CARD.y, 14, CARD.h);
+    });
+    g.restore();
+  }
+
+  // Frame.
+  g.save();
+  if (T.neon) {
+    g.shadowColor = T.accent;
+    g.shadowBlur = 40;
+  }
   roundRectPath(g, CARD);
-  g.strokeStyle = holo;
-  g.lineWidth = 10;
+  g.strokeStyle = T.frame(g, CARD.x, CARD.y, CARD.w, CARD.h);
+  g.lineWidth = T.frameWidth;
   g.stroke();
+  if (T.neon) {
+    g.shadowBlur = 0;
+    g.strokeStyle = 'rgba(255,255,255,.7)';
+    g.lineWidth = 2;
+    g.stroke();
+  }
+  g.restore();
+  if (T.stripes) {
+    roundRectPath(g, { x: CARD.x + 18, y: CARD.y + 18, w: CARD.w - 36, h: CARD.h - 36, r: 34 });
+    g.strokeStyle = 'rgba(59,42,32,.35)';
+    g.lineWidth = 2;
+    g.stroke();
+  }
 
   // Header: logo + class badge.
   const hy = CARD.y + 66;
-  g.fillStyle = ACCENT;
+  g.fillStyle = T.logoBg;
   g.beginPath(); g.roundRect(left, hy - 30, 60, 60, 15); g.fill();
   g.strokeStyle = '#fff'; g.lineWidth = 4.5; g.lineCap = 'round';
   g.beginPath(); g.arc(left + 30, hy, 18, 0, Math.PI * 2); g.stroke();
@@ -1590,25 +1758,32 @@ async function makeBuildCard(car, settings) {
   g.moveTo(left + 45.6, hy + 9); g.lineTo(left + 34, hy + 2.3);
   g.stroke();
   g.textBaseline = 'middle';
-  g.font = `700 38px ${FONT}`;
-  g.fillStyle = '#fff';
+  g.font = `${T.italic ? 'italic ' : ''}700 38px ${FONT}`;
+  g.fillStyle = T.text;
   g.fillText('Tuning', left + 78, hy + 1);
-  g.fillStyle = ACCENT;
+  g.fillStyle = T.accent;
   g.fillText('Book', left + 78 + g.measureText('Tuning').width, hy + 1);
 
   const tier = cardTier(car.mods.length);
   g.font = `800 26px ${FONT}`;
   spaced('4px');
   const tw = g.measureText(tier).width + 48;
-  g.beginPath(); g.roundRect(right - tw, hy - 26, tw, 52, 26);
-  g.fillStyle = holo; g.fill();
-  g.fillStyle = '#fff';
+  const badgeRight = T.stripes ? right - 70 : right;
+  g.save();
+  if (T.neon) { g.shadowColor = T.accent; g.shadowBlur = 24; }
+  g.beginPath(); g.roundRect(badgeRight - tw, hy - 26, tw, 52, 26);
+  g.fillStyle = T.badge(g, badgeRight - tw, hy - 26, tw, 52);
+  g.fill();
+  g.restore();
+  g.fillStyle = T.neon ? '#0b0714' : T.badgeText;
   g.textAlign = 'center';
-  g.fillText(tier, right - tw / 2 + 2, hy + 1);
+  g.fillText(tier, badgeRight - tw / 2 + 2, hy + 1);
   g.textAlign = 'left';
   spaced('0px');
 
   // Text block.
+  const textRight = T.stripes ? right - 70 : right;
+  const textW = textRight - left;
   const picked = settings.mods.map((id) => car.mods.find((m) => m.id === id)).filter(Boolean);
   const subtitle = carSubtitle(car);
   const STATS_H = 150, ROW = 70;
@@ -1617,14 +1792,17 @@ async function makeBuildCard(car, settings) {
   let y = wide ? box.y + box.h + 46 : footerY - 64 - blockH;
 
   g.textBaseline = 'top';
-  fitFont(g, car.name, 800, 92, 56, innerW, FONT);
-  g.fillStyle = '#fff';
-  g.fillText(fitText(g, car.name, innerW), left, y);
+  fitFont(g, car.name, nameStyle, 92, 56, textW, FONT);
+  g.save();
+  if (T.neon) { g.shadowColor = T.accent; g.shadowBlur = 28; }
+  g.fillStyle = T.text;
+  g.fillText(fitText(g, car.name, textW), left, y);
+  g.restore();
   y += 104;
   if (subtitle) {
     g.font = `500 38px ${FONT}`;
-    g.fillStyle = '#b9bfcc';
-    g.fillText(fitText(g, subtitle, innerW), left, y);
+    g.fillStyle = T.sub;
+    g.fillText(fitText(g, subtitle, textW), left, y);
     y += 56;
   }
   y += 30;
@@ -1637,22 +1815,22 @@ async function makeBuildCard(car, settings) {
     showPrices ? ['INVESTED', money(carTotal(car))] : ['PHOTOS', String(photosCount)],
     km !== null ? ['KM', Number(km).toLocaleString()] : ['YEAR', String(car.year || '—')],
   ];
-  const gap = 20, bw = (innerW - 2 * gap) / 3;
+  const gap = 20, bw = (textW - 2 * gap) / 3;
   stats.forEach(([label, value], i) => {
     const bx = left + i * (bw + gap);
     g.beginPath(); g.roundRect(bx, y, bw, STATS_H, 22);
-    g.fillStyle = wide ? 'rgba(255,255,255,.05)' : 'rgba(12,14,19,.62)';
+    g.fillStyle = wide ? T.statFill : T.statFillTall;
     g.fill();
-    g.strokeStyle = 'rgba(255,255,255,.09)';
+    g.strokeStyle = T.neon ? rgba(T.accent, 0.45) : T.statStroke;
     g.lineWidth = 2;
     g.stroke();
     g.textAlign = 'center';
     fitFont(g, value, 800, 54, 30, bw - 28, FONT);
-    g.fillStyle = i === 1 && showPrices ? ACCENT : '#fff';
+    g.fillStyle = i === 1 && showPrices ? T.accent : T.text;
     g.fillText(value, bx + bw / 2, y + 30);
     g.font = `700 22px ${FONT}`;
     spaced('3px');
-    g.fillStyle = '#9aa1ae';
+    g.fillStyle = T.muted;
     g.fillText(label, bx + bw / 2, y + 102);
     spaced('0px');
     g.textAlign = 'left';
@@ -1664,19 +1842,19 @@ async function makeBuildCard(car, settings) {
     y += 44;
     g.font = `800 24px ${FONT}`;
     spaced('4px');
-    g.fillStyle = ACCENT;
+    g.fillStyle = T.accent;
     g.fillText('TOP MODS', left, y);
     spaced('0px');
     y += 46;
     picked.forEach((m, i) => {
       const cy = y + ROW / 2;
       if (i) {
-        g.fillStyle = 'rgba(255,255,255,.07)';
-        g.fillRect(left, y, innerW, 2);
+        g.fillStyle = T.sep;
+        g.fillRect(left, y, textW, 2);
       }
       g.beginPath(); g.arc(left + 24, cy, 22, 0, Math.PI * 2);
-      g.fillStyle = 'rgba(255,90,54,.18)'; g.fill();
-      g.fillStyle = ACCENT;
+      g.fillStyle = rgba(T.accent, T.dark ? 0.18 : 0.14); g.fill();
+      g.fillStyle = T.accent;
       g.font = `800 24px ${FONT}`;
       g.textAlign = 'center';
       g.textBaseline = 'middle';
@@ -1686,14 +1864,14 @@ async function makeBuildCard(car, settings) {
       g.font = `${showPrices ? 700 : 500} 32px ${FONT}`;
       const pw = price ? g.measureText(price).width + 24 : 0;
       if (price) {
-        g.fillStyle = showPrices ? '#fff' : '#9aa1ae';
+        g.fillStyle = showPrices ? T.price : T.muted;
         g.textAlign = 'right';
-        g.fillText(fitText(g, price, 300), right, cy + 1);
+        g.fillText(fitText(g, price, 300), textRight, cy + 1);
         g.textAlign = 'left';
       }
       g.font = `600 34px ${FONT}`;
-      g.fillStyle = '#eceef3';
-      g.fillText(fitText(g, m.title, innerW - 64 - Math.min(pw, 324)), left + 64, cy + 1);
+      g.fillStyle = T.title;
+      g.fillText(fitText(g, m.title, textW - 64 - Math.min(pw, 324)), left + 64, cy + 1);
       g.textBaseline = 'top';
       y += ROW;
     });
@@ -1701,19 +1879,32 @@ async function makeBuildCard(car, settings) {
 
   // Footer.
   const site = window.api.siteUrl ? window.api.siteUrl.replace(/^https?:\/\//, '').replace(/\/$/, '') : '';
-  g.fillStyle = 'rgba(255,255,255,.1)';
-  g.fillRect(left, footerY - 40, innerW, 2);
+  g.fillStyle = T.sep;
+  g.fillRect(left, footerY - 40, textW, 2);
   g.textBaseline = 'middle';
   g.font = `500 26px ${FONT}`;
-  g.fillStyle = '#9aa1ae';
+  g.fillStyle = T.muted;
   g.fillText('Track your build with TuningBook', left, footerY);
   if (site) {
     g.textAlign = 'right';
-    g.fillStyle = '#c9ced8';
-    g.fillText(site, right, footerY);
+    g.fillStyle = T.sub;
+    g.fillText(site, textRight, footerY);
     g.textAlign = 'left';
   }
   return new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.92));
+}
+
+// CSS for the little style swatches in the designer.
+function styleSwatchCss(styleId, colourId) {
+  const A = CARD_COLOURS[colourId] || CARD_COLOURS.orange;
+  switch (styleId) {
+    case 'holo': return `background:conic-gradient(from 200deg, ${RAINBOW.join(',')})`;
+    case 'carbon': return 'background:repeating-linear-gradient(45deg,#2a2c31 0 6px,#121316 6px 12px);border-color:#c9ced6';
+    case 'neon': return `background:#0b0714;border-color:${A};box-shadow:0 0 12px ${A}, inset 0 0 8px ${rgba(A, 0.6)}`;
+    case 'retro': return 'background:linear-gradient(90deg,#f3e8cf 0 58%,#7a3e2b 58% 68%,#c8423a 68% 78%,#e8743b 78% 88%,#f3e8cf 88%);border-color:#3b2a20';
+    case 'minimal': return `background:#fff;border-color:#dfe2e7;box-shadow:inset 0 -10px 0 ${A}`;
+    default: return `background:linear-gradient(135deg, ${A}, ${mixHex(A, '#ffffff', 0.5)} 45%, #14171e 46%)`;
+  }
 }
 
 const cardFileName = (car) => `${slugify(car.name) || 'tuningbook'}-card.jpg`;
@@ -1755,6 +1946,18 @@ function openCardDesigner(car, { onClose } = {}) {
             <label class="check"><input type="checkbox" data-mod="${mod.id}"><span>${esc(mod.title)}</span><b>${money(mod.price)}</b></label>`).join('')}
           </div>` : '<div class="muted">No modifications yet.</div>'}
         </div>
+        <div class="field">
+          <label>Style</label>
+          <div class="cd-styles">${CARD_STYLES.map((st) => `
+            <button type="button" data-style="${st.id}"><i></i><span>${st.name}</span></button>`).join('')}
+          </div>
+        </div>
+        <div class="field cd-colour-field">
+          <label>Colour</label>
+          <div class="cd-colours">${Object.entries(CARD_COLOURS).map(([id, hex]) => `
+            <button type="button" data-colour="${id}" title="${id[0].toUpperCase() + id.slice(1)}" style="background:${hex}"></button>`).join('')}
+          </div>
+        </div>
         <label class="check"><input type="checkbox" data-prices ${c.showPrices ? 'checked' : ''}> Show prices</label>
       </div>
     </div>
@@ -1779,6 +1982,12 @@ function openCardDesigner(car, { onClose } = {}) {
     });
     const count = $('.cd-count', m.el);
     if (count) count.textContent = `${c.mods.length} / 4`;
+    $$('[data-style]', m.el).forEach((b) => {
+      b.classList.toggle('on', b.dataset.style === c.style);
+      b.querySelector('i').style.cssText = styleSwatchCss(b.dataset.style, c.colour);
+    });
+    $$('[data-colour]', m.el).forEach((b) => b.classList.toggle('on', b.dataset.colour === c.colour));
+    $('.cd-colour-field', m.el).classList.toggle('off', !CARD_STYLES.find((st) => st.id === c.style)?.colour);
     $('[data-adjust]', m.el)?.toggleAttribute('disabled', !c.photo);
   };
 
@@ -1811,7 +2020,13 @@ function openCardDesigner(car, { onClose } = {}) {
   m.el.addEventListener('click', async (e) => {
     const b = e.target.closest('button');
     if (!b) return;
-    if (b.dataset.photo !== undefined) {
+    if (b.dataset.style) {
+      c.style = b.dataset.style;
+      changed();
+    } else if (b.dataset.colour) {
+      c.colour = b.dataset.colour;
+      changed();
+    } else if (b.dataset.photo !== undefined) {
       c.photo = photos[Number(b.dataset.photo)];
       c.pos = c.photo.pos || null;
       changed();
