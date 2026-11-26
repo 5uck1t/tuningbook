@@ -59,6 +59,9 @@ function toRows(db) {
       row.share_id = c.shareId || null;
       row.share_prices = c.sharePrices !== false;
     }
+    // Extra cover photos for the car page slideshow (supabase/005-cover-slideshow.sql). Same idea:
+    // only sent once a car has them, so nothing breaks before that file has been run.
+    if ('gallery' in c) row.gallery = c.gallery || [];
     cars.set(c.id, JSON.stringify(row));
     for (const m of c.mods) {
       mods.set(m.id, JSON.stringify({
@@ -87,6 +90,7 @@ function fromRows(carRows, modRows, planRows, settingsRow) {
       cover: r.cover || null, createdAt: r.created_at, mods: [], plan: [],
     };
     if ('share_id' in r) { car.shareId = r.share_id; car.sharePrices = r.share_prices !== false; }
+    if ('gallery' in r) car.gallery = r.gallery || [];
     return car;
   });
   const byId = new Map(cars.map((c) => [c.id, c]));
@@ -116,7 +120,11 @@ const check = ({ data, error }) => {
 function referenced(db) {
   const set = new Set();
   const add = (img) => { if (img?.file) set.add(img.file); if (img?.preview) set.add(img.preview); };
-  for (const c of db.cars) { add(c.cover); for (const m of c.mods) { m.photos.forEach(add); m.receipts.forEach(add); } }
+  for (const c of db.cars) {
+    add(c.cover);
+    (c.gallery || []).forEach(add);
+    for (const m of c.mods) { m.photos.forEach(add); m.receipts.forEach(add); }
+  }
   return set;
 }
 
@@ -243,6 +251,7 @@ const adminApi = {
     const attach = (img) => { if (img) img._src = signed.get(img.file) || BLANK; };
     for (const c of db.cars) {
       attach(c.cover);
+      (c.gallery || []).forEach(attach);
       for (const m of c.mods) { m.photos.forEach(attach); m.receipts.forEach(attach); }
     }
     return db;
@@ -275,7 +284,8 @@ async function sharedBuild(shareId) {
   const owner = data.owner;
   const car = {
     id: data.car.id, name: data.car.name, make: data.car.make || '', model: data.car.model || '',
-    year: data.car.year || '', notes: '', cover: data.car.cover || null, sharePrices: data.car.share_prices !== false,
+    year: data.car.year || '', notes: '', cover: data.car.cover || null, gallery: data.car.gallery || [],
+    sharePrices: data.car.share_prices !== false,
     plan: [],
     mods: (data.mods || []).map((m) => ({
       id: m.id, title: m.title, category: m.category || '', date: m.date || '', mileage: m.mileage,
@@ -283,7 +293,7 @@ async function sharedBuild(shareId) {
       description: m.description || '', photos: m.photos || [], receipts: [],
     })),
   };
-  const images = [car.cover, ...car.mods.flatMap((m) => m.photos)].filter((i) => i && SAFE_NAME.test(i.file || ''));
+  const images = [car.cover, ...car.gallery, ...car.mods.flatMap((m) => m.photos)].filter((i) => i && SAFE_NAME.test(i.file || ''));
   const names = [...new Set(images.map((i) => i.file))];
   const signed = new Map();
   for (let i = 0; i < names.length; i += 100) {

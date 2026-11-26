@@ -292,6 +292,15 @@ const carCover = (car) => {
   for (const m of sorted) if (m.photos?.length) return m.photos[0];
   return null;
 };
+// Photos of the car page slideshow: the cover, then the extra cover photos (5 at most in all).
+// A car without its own cover shows the latest build photo, as before.
+const MAX_COVER_PHOTOS = 5;
+const carSlides = (car) => {
+  const own = [car.cover, ...(car.gallery || [])].filter((img) => img?.file);
+  if (own.length) return own.slice(0, MAX_COVER_PHOTOS);
+  const fallback = carCover(car);
+  return fallback ? [fallback] : [];
+};
 const carSubtitle = (car) => [car.year, car.make, car.model].filter(Boolean).join(' ');
 const planTotal = (car) => car.plan.reduce((s, p) => s + (Number(p.price) || 0), 0);
 const PRIORITIES = { high: 'High', medium: 'Medium', low: 'Low' };
@@ -513,8 +522,11 @@ function editImagePosition(img, { frames = [['cover', 'Cover'], ['list', 'List']
 }
 
 // Reusable image picker area (thumbnails + add button + drag & drop) used in forms.
-function mountImagePicker(container, list, { title, single = false, kind = 'photo' } = {}) {
+// `max`: how many images the list may hold. `ordered`: the first image is the main one — it gets a
+// "Main" badge and the others a button to move them forward.
+function mountImagePicker(container, list, { title, single = false, kind = 'photo', max = Infinity, ordered = false } = {}) {
   const render = () => {
+    const full = single ? list.length > 0 : list.length >= max;
     container.innerHTML = `
       <div class="thumbs">
         ${list.map((img, i) => `
@@ -522,22 +534,36 @@ function mountImagePicker(container, list, { title, single = false, kind = 'phot
             <img src="${imgSrc(img)}" loading="lazy"${imgPos(img)}>
             <button type="button" class="pos" data-pos="${i}" title="Adjust preview position">${ICON.move}</button>
             <button type="button" class="x" data-remove="${i}" title="Remove">×</button>
+            ${ordered && i === 0 && list.length > 1 ? '<span class="main-badge">Main</span>' : ''}
+            ${ordered && i > 0 ? `<button type="button" class="fwd" data-forward="${i}" title="${i === 1 ? 'Make this the main photo' : 'Move earlier'}">‹</button>` : ''}
           </div>`).join('')}
-        ${single && list.length ? '' : `<button type="button" class="add-thumb" data-add><b>+</b>${single ? 'Choose' : 'Add'}</button>`}
+        ${full ? '' : `<button type="button" class="add-thumb" data-add><b>+</b>${single ? 'Choose' : 'Add'}</button>`}
       </div>
+      ${max !== Infinity && !single ? `<div class="pick-count">${list.length} / ${max}</div>` : ''}
       ${single || IS_ANDROID || matchMedia('(hover: none)').matches ? '' : '<div class="drop-hint">or drag & drop images here</div>'}`;
   };
   const add = async (dropped) => {
     const items = await importImages(dropped, title, kind);
     if (!items.length) return;
     if (single) list.splice(0, list.length, items[0]);
-    else list.push(...items);
+    else {
+      const room = Math.max(0, max - list.length);
+      list.push(...items.slice(0, room));
+      if (items.length > room) toast(`Only ${max} photos fit here — ${items.length - room} not added`, 4000);
+    }
     render();
   };
   container.classList.add('dropzone');
   container.addEventListener('click', (e) => {
     const rm = e.target.closest('[data-remove]');
     if (rm) { list.splice(Number(rm.dataset.remove), 1); render(); return; }
+    const fw = e.target.closest('[data-forward]');
+    if (fw) {
+      const i = Number(fw.dataset.forward);
+      [list[i - 1], list[i]] = [list[i], list[i - 1]];
+      render();
+      return;
+    }
     const pb = e.target.closest('[data-pos]');
     if (pb) {
       const i = Number(pb.dataset.pos);
@@ -567,7 +593,7 @@ function mountImagePicker(container, list, { title, single = false, kind = 'phot
 function openCarForm(car) {
   const editing = !!car;
   const draft = car
-    ? { ...car, coverList: car.cover ? [car.cover] : [] }
+    ? { ...car, coverList: [car.cover, ...(car.gallery || [])].filter(Boolean) }
     : { name: '', make: '', model: '', year: '', notes: '', coverList: [] };
 
   const m = openModal(`
@@ -587,15 +613,15 @@ function openCarForm(car) {
         <textarea id="c-notes" placeholder="Engine code, VIN, goals for the build…" maxlength="2000">${esc(draft.notes)}</textarea>
       </div>
       <div class="field">
-        <label>Cover photo <span class="hint">— optional, otherwise the latest build photo is used</span></label>
-        <div id="c-cover" style="max-width:260px"></div>
+        <label>Cover photos <span class="hint">— up to ${MAX_COVER_PHOTOS}, shown as a slideshow on the car page. The first one is the main photo (garage, PDF, build card). Optional: without one, the latest build photo is used.</span></label>
+        <div id="c-cover"></div>
       </div>
     </form>
     <div class="modal-foot">
       <button class="btn" data-close>Cancel</button>
       <button class="btn primary" type="submit" form="car-form">${editing ? 'Save changes' : 'Add car'}</button>
     </div>`, {
-    onMount: (el) => mountImagePicker($('#c-cover', el), draft.coverList, { title: 'Choose a cover photo', single: true }),
+    onMount: (el) => mountImagePicker($('#c-cover', el), draft.coverList, { title: 'Choose cover photos', max: MAX_COVER_PHOTOS, ordered: true }),
   });
 
   $('#car-form', m.el).addEventListener('submit', async (e) => {
@@ -610,6 +636,8 @@ function openCarForm(car) {
       notes: $('#c-notes', m.el).value.trim(),
       cover: draft.coverList[0] || null,
     };
+    // Extra photos are only stored once a car has some (see toRows in web/src/cloud.js).
+    if (draft.coverList.length > 1 || (car && 'gallery' in car)) data.gallery = draft.coverList.slice(1, MAX_COVER_PHOTOS);
     if (editing) {
       Object.assign(car, data);
     } else {
@@ -953,6 +981,7 @@ function referencedImageNames(db) {
   const add = (img) => { if (img?.file) set.add(img.file); if (img?.preview) set.add(img.preview); };
   for (const car of db.cars) {
     add(car.cover);
+    (car.gallery || []).forEach(add);
     for (const m of car.mods) { m.photos.forEach(add); m.receipts.forEach(add); }
   }
   return [...set];
@@ -1056,6 +1085,7 @@ async function mergeGarage(incoming, getImage, { title, intro, from, confirmLabe
       };
       for (const car of incoming) {
         car.cover = compact(car.cover);
+        if (car.gallery) car.gallery = car.gallery.map(compact);
         for (const m of car.mods) { m.photos = m.photos.map(compact); m.receipts = m.receipts.map(compact); }
       }
       for (const car of incoming) for (const m of car.mods) for (const r of m.receipts) receiptNames.add(r.file);
@@ -1340,8 +1370,77 @@ function renderGarage() {
     </div>`;
 }
 
+// ---------- car page cover slideshow ----------
+
+const slideIndex = new Map(); // car id -> slide shown, so re-rendering the page keeps it
+const SLIDE_MS = 6000;
+
+function heroCover(car, { adjust = false } = {}) {
+  const slides = carSlides(car);
+  if (!slides.length) return `<div class="cover">${ICON.car}</div>`;
+  const at = Math.min(slideIndex.get(car.id) || 0, slides.length - 1);
+  const many = slides.length > 1;
+  return `
+    <div class="cover${many ? ' slideshow' : ''}" data-car="${car.id}" data-index="${at}"${many ? ' tabindex="0" aria-roledescription="carousel" aria-label="Car photos"' : ''}>
+      ${slides.map((img, i) => `<img class="slide${i === at ? ' active' : ''}" src="${imgSrc(img)}"${imgPos(img)}${i ? ' loading="lazy"' : ''} alt="">`).join('')}
+      ${many ? `
+        <button type="button" class="ss-nav prev" data-slide="-1" aria-label="Previous photo">‹</button>
+        <button type="button" class="ss-nav next" data-slide="1" aria-label="Next photo">›</button>
+        <div class="ss-dots">${slides.map((_, i) => `<button type="button" class="${i === at ? 'on' : ''}" data-slide-to="${i}" aria-label="Photo ${i + 1}"></button>`).join('')}</div>` : ''}
+      ${adjust ? `<button class="cover-adjust" data-action="adjust-cover" data-id="${car.id}" title="Adjust this photo's position">${ICON.move}<span>Adjust</span></button>` : ''}
+    </div>`;
+}
+
+function showSlide(show, to, { user = true } = {}) {
+  const imgs = show.querySelectorAll('img.slide');
+  if (!imgs.length) return;
+  const n = imgs.length;
+  const i = ((to % n) + n) % n;
+  imgs.forEach((img, j) => img.classList.toggle('active', j === i));
+  show.querySelectorAll('.ss-dots button').forEach((d, j) => d.classList.toggle('on', j === i));
+  show.dataset.index = i;
+  slideIndex.set(show.dataset.car, i);
+  if (user) show.dataset.touched = Date.now(); // pause autoplay for a while after a manual change
+}
+
+document.addEventListener('click', (e) => {
+  const show = e.target.closest('.slideshow');
+  if (!show) return;
+  const step = e.target.closest('[data-slide]');
+  const dot = e.target.closest('[data-slide-to]');
+  if (step) showSlide(show, Number(show.dataset.index) + Number(step.dataset.slide));
+  else if (dot) showSlide(show, Number(dot.dataset.slideTo));
+});
+document.addEventListener('keydown', (e) => {
+  const show = e.target.closest?.('.slideshow');
+  if (!show || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight')) return;
+  e.preventDefault();
+  showSlide(show, Number(show.dataset.index) + (e.key === 'ArrowRight' ? 1 : -1));
+});
+// Swipe on phones.
+let swipe = null;
+document.addEventListener('pointerdown', (e) => {
+  const show = e.target.closest?.('.slideshow');
+  swipe = show && e.pointerType !== 'mouse' ? { show, x: e.clientX, y: e.clientY } : null;
+});
+document.addEventListener('pointerup', (e) => {
+  if (!swipe) return;
+  const dx = e.clientX - swipe.x;
+  const dy = e.clientY - swipe.y;
+  if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy)) showSlide(swipe.show, Number(swipe.show.dataset.index) + (dx < 0 ? 1 : -1));
+  swipe = null;
+});
+// Autoplay, unless the pointer / keyboard is on it, it was just changed by hand, or the user prefers less motion.
+setInterval(() => {
+  if (document.hidden || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  for (const show of document.querySelectorAll('.slideshow')) {
+    if (show.matches(':hover, :focus-within') || state.modals?.length) continue;
+    if (Date.now() - Number(show.dataset.touched || 0) < SLIDE_MS * 2) continue;
+    showSlide(show, Number(show.dataset.index) + 1, { user: false });
+  }
+}, SLIDE_MS);
+
 function renderCar(car) {
-  const cover = carCover(car);
   const total = carTotal(car);
   const photos = car.mods.reduce((s, m) => s + m.photos.length, 0);
   const receipts = car.mods.reduce((s, m) => s + m.receipts.length, 0);
@@ -1356,8 +1455,7 @@ function renderCar(car) {
   return `
     <div class="view-inner">
       <section class="car-hero">
-        <div class="cover">${cover ? `<img src="${imgSrc(cover)}"${imgPos(cover)}>
-          <button class="cover-adjust" data-action="adjust-cover" data-id="${car.id}" title="Adjust preview position">${ICON.move}<span>Adjust</span></button>` : ICON.car}</div>
+        ${heroCover(car, { adjust: true })}
         <div class="hero-body">
           <div class="eyebrow">Build</div>
           <h1>${esc(car.name)}</h1>
@@ -1861,12 +1959,12 @@ const CARD_PHOTO_WIDE = { x: CARD.x + 40, y: CARD.y + 130, w: CARD.w - 80, h: 62
 const isWide = (w, h) => w >= h * 1.05;
 const cardTier = (mods) => (mods >= 30 ? 'LEGEND' : mods >= 15 ? 'BUILT' : mods >= 5 ? 'STREET' : 'STOCK+');
 
-// Photos a card can use: the car's cover, then build photos (newest modification first).
+// Photos a card can use: the car's cover photos, then build photos (newest modification first).
 function cardPhotos(car) {
   const seen = new Set();
   const out = [];
   const byDate = [...car.mods].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-  for (const img of [car.cover, ...byDate.flatMap((m) => m.photos)]) {
+  for (const img of [car.cover, ...(car.gallery || []), ...byDate.flatMap((m) => m.photos)]) {
     if (img?.file && !seen.has(img.file)) { seen.add(img.file); out.push(img); }
   }
   return out;
@@ -2657,12 +2755,11 @@ function renderPublic() {
   }
   const { car, currency } = pb;
   const prices = car.sharePrices;
-  const cover = carCover(car);
   const photos = car.mods.reduce((n, m) => n + m.photos.length, 0);
   return `
     <div class="view-inner">
       <section class="car-hero">
-        <div class="cover">${cover ? `<img src="${imgSrc(cover)}"${imgPos(cover)}>` : ICON.car}</div>
+        ${heroCover(car)}
         <div class="hero-body">
           <div class="eyebrow">Shared build</div>
           <h1>${esc(car.name)}</h1>
@@ -2822,14 +2919,13 @@ function renderAdminCar(userId, carId) {
   const car = db?.cars?.find((c) => c.id === carId);
   if (!car) { state.view = { name: 'admin-user', userId }; return renderAdminUser(userId); }
   const cur = db.settings.currency;
-  const cover = carCover(car);
   const mods = [...car.mods].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
   const photos = car.mods.reduce((s, m) => s + m.photos.length, 0);
   const receipts = car.mods.reduce((s, m) => s + m.receipts.length, 0);
   return `
     <div class="view-inner">
       <section class="car-hero">
-        <div class="cover">${cover ? `<img src="${imgSrc(cover)}"${imgPos(cover)}>` : ICON.car}</div>
+        ${heroCover(car)}
         <div class="hero-body">
           <div class="eyebrow">${esc(adminUser(userId)?.email || '')}</div>
           <h1>${esc(car.name)}</h1>
@@ -2884,14 +2980,18 @@ function goBack() {
 //  Global events
 // ======================================================================
 
-// The car page's "Adjust" button: reposition whichever photo is the car's cover — its own cover
-// photo, or (when it has none) the first photo of the latest modification.
+// The car page's "Adjust" button: reposition the photo the slideshow is showing — one of the car's
+// cover photos, or (when it has none) the first photo of the latest modification.
 async function adjustCarCover(car) {
-  const cover = carCover(car);
+  const slides = carSlides(car);
+  const shown = Number($(`.car-hero .cover[data-car="${car.id}"]`)?.dataset.index || 0);
+  const cover = slides[shown] || slides[0];
   if (!cover) return;
   const pos = await editImagePosition(cover);
   if (!pos) return;
+  const g = (car.gallery || []).indexOf(cover);
   if (car.cover === cover) car.cover = { ...cover, pos };
+  else if (g >= 0) car.gallery[g] = { ...cover, pos };
   else for (const m of car.mods) { const i = m.photos.indexOf(cover); if (i >= 0) { m.photos[i] = { ...cover, pos }; break; } }
   await persist();
   render();
