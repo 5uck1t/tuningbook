@@ -267,13 +267,6 @@ textarea { resize: vertical; min-height: 80px; }
 .pos-previews span { font-size: 12px; color: var(--muted); }
 
 .car-hero .cover { position: relative; }
-.cover-adjust {
-  position: absolute; right: 8px; bottom: 8px; display: flex; align-items: center; gap: 6px;
-  padding: 5px 10px; border-radius: 999px; border: 0; background: rgba(0,0,0,.65); color: #fff;
-  font-size: 12px; font-weight: 600; opacity: 0; transition: opacity .15s;
-}
-.car-hero .cover:hover .cover-adjust, .cover-adjust:focus-visible { opacity: 1; }
-.cover-adjust:hover { background: var(--accent); }
 .thumb .x:hover { background: var(--danger); }
 .add-thumb {
   aspect-ratio: 1; border-radius: 8px; border: 1px solid var(--line); background: var(--bg);
@@ -388,7 +381,7 @@ textarea { resize: vertical; min-height: 80px; }
 @media (hover: none) {
   .car-card .card-menu, .mod-row .row-actions { display: none; }
   .car-card:hover { transform: none; box-shadow: none; }
-  .thumb .x, .thumb .pos, .cover-adjust { opacity: 1; }
+  .thumb .x, .thumb .pos { opacity: 1; }
 }
 
 /* "New version available" bar (website / installed web app) */
@@ -693,7 +686,6 @@ body.public .topbar-actions { display: none; }
   padding: 5px 8px; border-radius: 999px; background: rgba(0, 0, 0, .4); }
 .ss-dots button { width: 7px; height: 7px; padding: 0; border: 0; border-radius: 50%; background: rgba(255, 255, 255, .5); transition: width .2s, background .2s; }
 .ss-dots button.on { width: 18px; border-radius: 4px; background: #fff; }
-.car-hero .cover .cover-adjust { z-index: 2; }
 @media (hover: none) { .ss-nav { opacity: .9; width: 30px; height: 30px; } }
 @media (prefers-reduced-motion: reduce) { .car-hero .cover img.slide { transition: none; } }
 

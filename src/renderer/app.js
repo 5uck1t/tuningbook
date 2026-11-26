@@ -1375,7 +1375,7 @@ function renderGarage() {
 const slideIndex = new Map(); // car id -> slide shown, so re-rendering the page keeps it
 const SLIDE_MS = 6000;
 
-function heroCover(car, { adjust = false } = {}) {
+function heroCover(car) {
   const slides = carSlides(car);
   if (!slides.length) return `<div class="cover">${ICON.car}</div>`;
   const at = Math.min(slideIndex.get(car.id) || 0, slides.length - 1);
@@ -1387,7 +1387,6 @@ function heroCover(car, { adjust = false } = {}) {
         <button type="button" class="ss-nav prev" data-slide="-1" aria-label="Previous photo">‹</button>
         <button type="button" class="ss-nav next" data-slide="1" aria-label="Next photo">›</button>
         <div class="ss-dots">${slides.map((_, i) => `<button type="button" class="${i === at ? 'on' : ''}" data-slide-to="${i}" aria-label="Photo ${i + 1}"></button>`).join('')}</div>` : ''}
-      ${adjust ? `<button class="cover-adjust" data-action="adjust-cover" data-id="${car.id}" title="Adjust this photo's position">${ICON.move}<span>Adjust</span></button>` : ''}
     </div>`;
 }
 
@@ -1455,7 +1454,7 @@ function renderCar(car) {
   return `
     <div class="view-inner">
       <section class="car-hero">
-        ${heroCover(car, { adjust: true })}
+        ${heroCover(car)}
         <div class="hero-body">
           <div class="eyebrow">Build</div>
           <h1>${esc(car.name)}</h1>
@@ -2980,23 +2979,6 @@ function goBack() {
 //  Global events
 // ======================================================================
 
-// The car page's "Adjust" button: reposition the photo the slideshow is showing — one of the car's
-// cover photos, or (when it has none) the first photo of the latest modification.
-async function adjustCarCover(car) {
-  const slides = carSlides(car);
-  const shown = Number($(`.car-hero .cover[data-car="${car.id}"]`)?.dataset.index || 0);
-  const cover = slides[shown] || slides[0];
-  if (!cover) return;
-  const pos = await editImagePosition(cover);
-  if (!pos) return;
-  const g = (car.gallery || []).indexOf(cover);
-  if (car.cover === cover) car.cover = { ...cover, pos };
-  else if (g >= 0) car.gallery[g] = { ...cover, pos };
-  else for (const m of car.mods) { const i = m.photos.indexOf(cover); if (i >= 0) { m.photos[i] = { ...cover, pos }; break; } }
-  await persist();
-  render();
-}
-
 const actions = {
   admin: () => { if (!window.api.admin) return; state.view = { name: 'admin' }; render(); $('#view').scrollTop = 0; },
   'admin-refresh': () => { adminState.users = null; adminState.usersError = ''; adminState.garages.clear(); render(); },
@@ -3021,7 +3003,6 @@ const actions = {
   'open-car': (id) => { state.view = { name: 'car', carId: id }; state.modSearch = ''; state.carTab = 'mods'; state.modKind = 'mods'; render(); $('#view').scrollTop = 0; },
   'add-car': () => openCarForm(),
   'edit-car': (id) => openCarForm(carById(id)),
-  'adjust-cover': (id) => adjustCarCover(carById(id)),
   'delete-car': (id) => deleteCar(carById(id)),
   'export-all': () => openExport(state.db.cars.map((c) => c.id)),
   'export-garage': () => exportBackup(),
